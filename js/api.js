@@ -1,6 +1,5 @@
 /* ═══════════════════════════════════════════════
    Army Bank Admin — api.js
-   API client for https://army-bank.onrender.com
    ═══════════════════════════════════════════════ */
 
 const API_BASE = 'https://army-bank.onrender.com';
@@ -21,11 +20,9 @@ class AdminAPI {
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(`${API_BASE}${path}`, opts);
 
-    // Handle token refresh
     const refreshed = res.headers.get('X-Refresh-Token');
     if (refreshed && refreshed !== this.token) this.setToken(refreshed);
 
-    // Auto-logout on 401
     if (res.status === 401) {
       this.setToken('');
       window.dispatchEvent(new Event('admin:unauthorized'));
@@ -36,31 +33,34 @@ class AdminAPI {
     return json;
   }
 
-  get(path)          { return this.request('GET', path); }
-  post(path, body)   { return this.request('POST', path, body); }
-  patch(path, body)  { return this.request('PATCH', path, body); }
-  delete(path)       { return this.request('DELETE', path); }
+  get(path)         { return this.request('GET', path); }
+  post(path, body)  { return this.request('POST', path, body); }
+  patch(path, body) { return this.request('PATCH', path, body); }
 
   // ── Auth ──
-  login(identity, password) {
-    return this.request('POST', '/api/auth/login', { identity, password });
-  }
-  logout() { return this.request('POST', '/api/auth/logout').catch(() => {}); }
-  me() { return this.request('GET', '/api/auth/me'); }
+  login(identity, password) { return this.post('/api/auth/login', { identity, password }); }
+  logout()  { return this.post('/api/auth/logout').catch(() => {}); }
+  me()      { return this.get('/api/auth/me'); }
 
   // ── Admin ──
-  stats() { return this.get('/api/admin/stats'); }
+  stats()   { return this.get('/api/admin/stats'); }
+
   listUsers(params = {}) {
     const q = new URLSearchParams(params).toString();
     return this.get(`/api/admin/users${q ? '?' + q : ''}`);
   }
-  getUser(id) { return this.get(`/api/admin/users/${id}`); }
+  getUser(id)          { return this.get(`/api/admin/users/${id}`); }
+  getUserTransactions(id, limit = 50) {
+    return this.get(`/api/admin/users/${id}/transactions?limit=${limit}`);
+  }
   updateRole(id, role) { return this.patch(`/api/admin/users/${id}/role`, { role }); }
+
   listTransactions(params = {}) {
     const q = new URLSearchParams(params).toString();
     return this.get(`/api/admin/transactions${q ? '?' + q : ''}`);
   }
-  createPayout(data) { return this.post('/api/admin/payouts', data); }
+  createPayout(data)   { return this.post('/api/admin/payouts', data); }
+
   listAuditLogs(params = {}) {
     const q = new URLSearchParams(params).toString();
     return this.get(`/api/admin/audit-logs${q ? '?' + q : ''}`);

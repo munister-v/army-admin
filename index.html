@@ -159,10 +159,23 @@
     <div id="userModal" class="modal-overlay hidden">
       <div class="modal-box">
         <div class="modal-header">
-          <h3 id="modalUserName">Користувач</h3>
+          <div class="modal-header-left">
+            <div class="modal-avatar" id="modalAvatar">A</div>
+            <div>
+              <h3 id="modalUserName">Користувач</h3>
+              <span id="modalUserRoleBadge"></span>
+            </div>
+          </div>
           <button class="modal-close" id="modalClose">✕</button>
         </div>
-        <div class="modal-body" id="modalBody">
+        <!-- TABS -->
+        <div class="modal-tabs">
+          <button class="modal-tab active" data-tab="info">Інфо</button>
+          <button class="modal-tab" data-tab="actions">Дії</button>
+          <button class="modal-tab" data-tab="txs">Транзакції</button>
+        </div>
+        <!-- TAB: INFO -->
+        <div class="modal-tab-content active" id="tab-info">
           <div class="modal-section">
             <div class="modal-row"><span>ID</span><span id="mUserId">—</span></div>
             <div class="modal-row"><span>Email</span><span id="mUserEmail">—</span></div>
@@ -173,9 +186,12 @@
           </div>
           <div class="modal-section" id="mAccountSection">
             <div class="section-title" style="margin:0 0 12px">Рахунок</div>
-            <div class="modal-row"><span>Номер рахунку</span><span id="mAccNumber">—</span></div>
-            <div class="modal-row"><span>Баланс</span><b id="mAccBalance">—</b></div>
+            <div class="modal-row"><span>Номер</span><code id="mAccNumber" style="font-size:.82rem">—</code></div>
+            <div class="modal-row"><span>Баланс</span><b id="mAccBalance" style="color:var(--gold)">—</b></div>
           </div>
+        </div>
+        <!-- TAB: ACTIONS -->
+        <div class="modal-tab-content hidden" id="tab-actions">
           <div class="modal-section">
             <div class="section-title" style="margin:0 0 12px">Змінити роль</div>
             <div class="inline-form">
@@ -192,11 +208,26 @@
           <div class="modal-section">
             <div class="section-title" style="margin:0 0 12px">Нарахувати виплату</div>
             <div class="inline-form">
-              <input type="number" id="mPayoutAmount" class="filter-input" placeholder="Сума, грн" min="1" style="width:140px" />
-              <input type="text" id="mPayoutTitle" class="filter-input" placeholder="Призначення" style="flex:1" />
-              <button class="btn-primary gold" id="mPayoutBtn">Нарахувати</button>
+              <input type="number" id="mPayoutAmount" class="filter-input" placeholder="Сума, грн" min="1" />
+              <input type="text" id="mPayoutTitle" class="filter-input" placeholder="Призначення" />
+              <button class="btn-primary" id="mPayoutBtn">Нарахувати</button>
             </div>
             <div id="payoutMsg" class="form-msg hidden"></div>
+          </div>
+        </div>
+        <!-- TAB: TRANSACTIONS -->
+        <div class="modal-tab-content hidden" id="tab-txs">
+          <div class="modal-section" style="padding-bottom:0">
+            <div id="mTxLoading" style="padding:24px;text-align:center;color:var(--text-muted);font-size:.85rem">Завантаження…</div>
+            <div class="table-wrap" id="mTxWrap" style="display:none;border:none;border-radius:0">
+              <table class="data-table" id="mTxTable">
+                <thead><tr>
+                  <th>Дата</th><th>Тип</th><th>Dir</th><th>Сума</th><th>Опис</th>
+                </tr></thead>
+                <tbody id="mTxBody"></tbody>
+              </table>
+            </div>
+            <div id="mTxEmpty" style="display:none;padding:24px;text-align:center;color:var(--text-muted);font-size:.85rem">Транзакцій немає.</div>
           </div>
         </div>
       </div>
