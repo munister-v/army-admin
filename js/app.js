@@ -501,8 +501,8 @@ async function loadAuditLogs() {
     tbody.innerHTML = logs.map(l => `
       <tr>
         <td style="color:var(--text-muted);font-size:.8rem;white-space:nowrap">${fmt(l.created_at)}</td>
-        <td style="color:var(--text-muted)">${l.user_id}</td>
-        <td><span class="badge" style="background:rgba(255,255,255,.06);color:var(--text)">${eventLabels[l.event_type] || escHtml(l.event_type)}</span></td>
+        <td style="color:var(--text-muted)">${l.user_id || '—'}</td>
+        <td><span class="badge" style="background:rgba(255,255,255,.06);color:var(--text)">${eventLabels[l.action] || escHtml(l.action)}</span></td>
         <td style="font-size:.82rem;color:var(--text-muted);max-width:350px;overflow:hidden;text-overflow:ellipsis">${escHtml(l.details || '—')}</td>
       </tr>
     `).join('');
