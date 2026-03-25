@@ -104,6 +104,10 @@ class AdminAPI {
     const q = new URLSearchParams(params).toString();
     return this.get(`/api/admin/payments/sla-queue${q ? '?' + q : ''}`);
   }
+  getPaymentApprovalInbox(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get(`/api/admin/payments/approval-inbox${q ? '?' + q : ''}`);
+  }
   runPaymentSlaAutoEscalate(data = {}) {
     return this.post('/api/admin/payments/sla-auto-escalate', data);
   }

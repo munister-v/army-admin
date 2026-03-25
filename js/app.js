@@ -32,6 +32,11 @@ function txTypeBadge(type) {
   return badge(type, map[type] || type);
 }
 
+function txTypeLabel(type) {
+  const map = { payout: 'Виплата', donation: 'Донат', transfer: 'Переказ', deposit: 'Депозит', withdrawal: 'Зняття' };
+  return map[type] || (type || '—');
+}
+
 function showToast(msg, type = 'success') {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -58,6 +63,8 @@ let selectedPayoutUser = null;
 let txOffset = 0;
 let txLimit = 50;
 let txCurrentRows = [];
+let txReqSeq = 0;
+let txChartReqSeq = 0;
 let txDetailTx = null;
 let procOrderOffset = 0;
 let procRiskOffset = 0;
@@ -217,7 +224,7 @@ function loadPage(page) {
   switch (page) {
     case 'dashboard':    loadDashboard(); break;
     case 'users':        loadUsers(); break;
-    case 'transactions': loadTransactions(); break;
+    case 'transactions': loadTransactions(); loadTxChart(); break;
     case 'processing':   loadProcessing(); break;
     case 'audit':        loadAuditLogs(); break;
   }
@@ -555,6 +562,7 @@ document.getElementById('mPayoutBtn').addEventListener('click', async () => {
    TRANSACTIONS
 ══════════════════════════════════════════════ */
 async function loadTransactions(offset = 0) {
+  const reqId = ++txReqSeq;
   txOffset = offset;
   txLimit = Number(document.getElementById('txLimitFilter')?.value || 50);
   const params = { limit: txLimit, offset };
@@ -580,16 +588,20 @@ async function loadTransactions(offset = 0) {
 
   try {
     const res   = await api.listTransactions(params);
+    if (reqId !== txReqSeq) return;
     const rows  = res.data  || [];
     const total = res.total || 0;
     const summary = res.summary || null;
+    const highValueThreshold = Number(summary?.high_value_threshold || 0);
 
     txCurrentRows = rows;
     document.getElementById('txCount').textContent = `${total} транзакцій`;
     updateTxRegistry(rows, summary);
 
-    document.getElementById('txBody').innerHTML = rows.map(tx => `
-      <tr>
+    document.getElementById('txBody').innerHTML = rows.map(tx => {
+      const isHighValue = highValueThreshold > 0 && Number(tx.amount || 0) >= highValueThreshold;
+      return `
+      <tr class="${isHighValue ? 'tx-high-value' : ''}">
         <td style="font-size:.78rem;color:var(--text-muted)">#${tx.id}</td>
         <td style="font-size:.8rem;color:var(--text-muted);white-space:nowrap">${fmt(tx.created_at)}</td>
         <td style="font-size:.82rem">${escHtml(tx.full_name || '—')}</td>
@@ -605,11 +617,12 @@ async function loadTransactions(offset = 0) {
           </div>
         </td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
 
     renderPagination(total, offset, txLimit);
-    loadTxChart().catch(() => {});
   } catch (err) {
+    if (reqId !== txReqSeq) return;
     showToast('Помилка: ' + err.message, 'error');
   }
 }
@@ -648,6 +661,19 @@ function updateTxRegistry(rows, summary = null) {
   let net = inTotal - outTotal;
   let avg = rows.length ? (inTotal + outTotal) / rows.length : 0;
   let count = rows.length;
+  let minAmount = rows.length ? Math.min(...rows.map(tx => Number(tx.amount || 0))) : 0;
+  let maxAmount = rows.length ? Math.max(...rows.map(tx => Number(tx.amount || 0))) : 0;
+  let uniqueUsers = new Set(rows.map(tx => Number(tx.user_id || 0)).filter(Boolean)).size;
+  let topType = rows.length ? rows.reduce((acc, tx) => {
+    const key = String(tx.tx_type || 'other');
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {}) : {};
+  if (rows.length) {
+    topType = Object.entries(topType).sort((a, b) => Number(b[1]) - Number(a[1]))[0]?.[0] || '—';
+  } else {
+    topType = '—';
+  }
 
   if (summary && typeof summary === 'object') {
     inTotal = Number(summary.total_in || 0);
@@ -655,6 +681,10 @@ function updateTxRegistry(rows, summary = null) {
     net = Number(summary.net || 0);
     avg = Number(summary.avg_amount || 0);
     count = Number(summary.count || 0);
+    minAmount = Number(summary.min_amount || 0);
+    maxAmount = Number(summary.max_amount || 0);
+    uniqueUsers = Number(summary.unique_users || 0);
+    topType = summary.top_tx_type || topType;
   }
 
   document.getElementById('txRegPageCount').textContent = `${count}`;
@@ -662,6 +692,14 @@ function updateTxRegistry(rows, summary = null) {
   document.getElementById('txRegOut').textContent = fmtMoney(outTotal);
   document.getElementById('txRegNet').textContent = fmtMoney(net);
   document.getElementById('txRegAvg').textContent = fmtMoney(avg);
+  const txRegMin = document.getElementById('txRegMin');
+  if (txRegMin) txRegMin.textContent = fmtMoney(minAmount);
+  const txRegMax = document.getElementById('txRegMax');
+  if (txRegMax) txRegMax.textContent = fmtMoney(maxAmount);
+  const txRegUsers = document.getElementById('txRegUsers');
+  if (txRegUsers) txRegUsers.textContent = `${uniqueUsers}`;
+  const txRegTopType = document.getElementById('txRegTopType');
+  if (txRegTopType) txRegTopType.textContent = txTypeLabel(String(topType || ''));
 }
 
 function applyTxQuickRange(days) {
@@ -788,11 +826,14 @@ function renderTxChart(daily = [], source = 'api') {
 }
 
 async function loadTxChart() {
+  const reqId = ++txChartReqSeq;
   const days = Number(document.getElementById('txChartDays')?.value || 30);
   try {
     const res = await api.chartStats(days);
+    if (reqId !== txChartReqSeq) return;
     renderTxChart((res.data && res.data.daily) || [], 'api');
   } catch (_err) {
+    if (reqId !== txChartReqSeq) return;
     renderTxChart(buildLocalDailyStats(txCurrentRows), 'local');
   }
 }
@@ -1222,14 +1263,13 @@ async function loadApprovalInbox() {
     limit: 12,
     offset: 0,
     open_only: 'true',
-    approval_state: 'requested',
   };
   if (isOperatorRole() && currentAdminUser?.id) {
     params.assigned_admin_id = currentAdminUser.id;
   }
 
   try {
-    const res = await api.getPaymentSlaQueue(params);
+    const res = await api.getPaymentApprovalInbox(params);
     if (reqId !== procRequestSeq.inbox) return;
     const rows = res.data || [];
     if (!rows.length) {

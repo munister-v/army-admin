@@ -654,6 +654,10 @@ body {
   gap: 6px;
 }
 
+.tx-high-value td {
+  background: rgba(200,168,75,.05);
+}
+
 .tx-mini-btn {
   background: transparent;
   border: 1px solid var(--border);
