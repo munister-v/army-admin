@@ -960,9 +960,14 @@ body {
 .badge-risk-medium { background: rgba(250,204,21,.14); color: #facc15; }
 .badge-risk-high { background: rgba(251,146,60,.14); color: #fb923c; }
 .badge-risk-critical { background: rgba(248,113,113,.14); color: #f87171; }
+.badge-review-none { background: rgba(160,165,178,.16); color: #bec5d3; }
+.badge-review-pending { background: rgba(126,165,255,.16); color: #b6ccff; }
+.badge-review-approved { background: rgba(62,207,142,.14); color: var(--green); }
+.badge-review-rejected { background: rgba(248,113,113,.14); color: var(--red); }
+.badge-review-escalated { background: rgba(250,204,21,.16); color: #facc15; }
 
 .proc-flags {
-  max-width: 230px;
+  max-width: 220px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -977,6 +982,69 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.proc-order-box {
+  max-width: 780px;
+}
+
+.proc-modal-field {
+  margin-top: 12px;
+}
+
+.proc-modal-textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.proc-modal-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.proc-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.proc-timeline-item {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 10px;
+}
+
+.proc-timeline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.proc-timeline-type {
+  font-size: .76rem;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.proc-timeline-meta {
+  font-size: .75rem;
+  color: var(--text-muted);
+}
+
+.proc-timeline-details {
+  font-size: .82rem;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* ── TOAST ── */
@@ -1058,6 +1126,9 @@ body {
   .tx-registry-grid { grid-template-columns: 1fr; }
   .tx-adjust-actions {
     flex-direction: column;
+  }
+  .proc-modal-actions {
+    grid-template-columns: 1fr;
   }
   .form-card { padding: 16px; }
   .field-row { flex-direction: column; }

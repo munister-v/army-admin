@@ -368,6 +368,14 @@
           <div class="registry-label">Completed</div>
           <div class="registry-value green" id="procCompletedTotal">—</div>
         </div>
+        <div class="registry-card">
+          <div class="registry-label">На ручній перевірці</div>
+          <div class="registry-value" id="procReviewPendingTotal">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Призначено</div>
+          <div class="registry-value" id="procAssignedTotal">—</div>
+        </div>
       </div>
 
       <div class="proc-grid">
@@ -408,14 +416,28 @@
           <option value="high">high</option>
           <option value="critical">critical</option>
         </select>
+        <select id="procOrderReviewFilter" class="filter-select">
+          <option value="">Всі review-state</option>
+          <option value="none">none</option>
+          <option value="pending">pending</option>
+          <option value="approved">approved</option>
+          <option value="rejected">rejected</option>
+          <option value="escalated">escalated</option>
+        </select>
+        <select id="procOrderAssignedFilter" class="filter-select">
+          <option value="">Всі assignee</option>
+          <option value="me">Мої кейси</option>
+          <option value="unassigned">Без відповідального</option>
+        </select>
         <input type="number" id="procOrderUserFilter" class="filter-input" placeholder="User ID" min="1" />
+        <input type="text" id="procOrderSearchFilter" class="filter-input" placeholder="Пошук: опис/ПІБ/рахунок" />
         <button class="btn-secondary" id="procOrderApplyBtn">Застосувати</button>
         <button class="btn-secondary" id="procOrderClearBtn">Скинути</button>
       </div>
       <div class="table-wrap">
         <table class="data-table">
           <thead><tr>
-            <th>ID</th><th>Дата</th><th>User</th><th>Sender → Recipient</th><th>Сума</th><th>Status</th><th>Risk</th><th>Flags</th>
+            <th>ID</th><th>Дата</th><th>User</th><th>Sender → Recipient</th><th>Сума</th><th>Status</th><th>Risk</th><th>Review</th><th>Assignee</th><th>Flags</th><th>Дії</th>
           </tr></thead>
           <tbody id="procOrdersBody"></tbody>
         </table>
@@ -553,6 +575,61 @@
         <button class="btn-secondary" id="txOpenUserBtn">Картка користувача</button>
       </div>
       <div id="txAdjustMsg" class="form-msg hidden"></div>
+    </div>
+  </div>
+</div>
+
+<!-- PAYMENT ORDER MODAL -->
+<div id="procOrderModal" class="modal-overlay hidden">
+  <div class="modal-box proc-order-box">
+    <div class="modal-header">
+      <div class="modal-header-left">
+        <div class="modal-avatar">PO</div>
+        <div>
+          <h3 id="procModalTitle">Платіжний ордер</h3>
+          <span id="procModalBadges"></span>
+        </div>
+      </div>
+      <button class="modal-close" id="procModalClose">✕</button>
+    </div>
+    <div class="modal-section">
+      <div class="modal-row"><span>ID</span><span id="procModalId">—</span></div>
+      <div class="modal-row"><span>Користувач</span><span id="procModalUser">—</span></div>
+      <div class="modal-row"><span>Маршрут</span><code id="procModalRoute">—</code></div>
+      <div class="modal-row"><span>Сума</span><b id="procModalAmount">—</b></div>
+      <div class="modal-row"><span>Status</span><span id="procModalStatus">—</span></div>
+      <div class="modal-row"><span>Risk</span><span id="procModalRisk">—</span></div>
+      <div class="modal-row"><span>Review</span><span id="procModalReview">—</span></div>
+      <div class="modal-row"><span>Assignee</span><span id="procModalAssignee">—</span></div>
+      <div class="modal-row"><span>Decision note</span><span id="procModalDecisionNote">—</span></div>
+    </div>
+    <div class="modal-section">
+      <div class="section-title" style="margin:0 0 12px">Керування кейсом</div>
+      <div class="inline-form">
+        <input type="number" id="procModalAssignUserId" class="filter-input" placeholder="Admin User ID" min="1" />
+        <button class="btn-secondary" id="procModalAssignBtn">Призначити</button>
+      </div>
+      <div class="field-group proc-modal-field">
+        <label>Нотатка/коментар для рішення</label>
+        <textarea id="procModalDecisionInput" class="filter-input proc-modal-textarea" placeholder="Коментар для approve/reject/escalate"></textarea>
+      </div>
+      <div class="proc-modal-actions">
+        <button class="btn-secondary" id="procModalApproveBtn">Approve</button>
+        <button class="btn-secondary" id="procModalRejectBtn">Reject</button>
+        <button class="btn-secondary" id="procModalEscalateBtn">Escalate</button>
+        <button class="btn-secondary" id="procModalClearBtn">Clear</button>
+      </div>
+      <div class="inline-form" style="margin-top:10px">
+        <input type="text" id="procModalAddNoteInput" class="filter-input" placeholder="Додати нотатку в таймлайн" />
+        <button class="btn-secondary" id="procModalAddNoteBtn">Додати</button>
+      </div>
+      <div id="procModalMsg" class="form-msg hidden"></div>
+    </div>
+    <div class="modal-section">
+      <div class="section-title" style="margin:0 0 12px">Таймлайн</div>
+      <div id="procModalTimeline" class="proc-timeline">
+        <div class="mini-chart-empty">Завантаження…</div>
+      </div>
     </div>
   </div>
 </div>

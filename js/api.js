@@ -72,6 +72,18 @@ class AdminAPI {
   getPaymentOrder(orderId) {
     return this.get(`/api/admin/payments/orders/${orderId}`);
   }
+  assignPaymentOrder(orderId, data = {}) {
+    return this.patch(`/api/admin/payments/orders/${orderId}/assign`, data);
+  }
+  decidePaymentOrder(orderId, data = {}) {
+    return this.patch(`/api/admin/payments/orders/${orderId}/decision`, data);
+  }
+  addPaymentOrderNote(orderId, note) {
+    return this.post(`/api/admin/payments/orders/${orderId}/notes`, { note });
+  }
+  getPaymentOrderTimeline(orderId, limit = 200) {
+    return this.get(`/api/admin/payments/orders/${orderId}/timeline?limit=${limit}`);
+  }
   listPaymentRiskEvents(params = {}) {
     const q = new URLSearchParams(params).toString();
     return this.get(`/api/admin/payments/risk-events${q ? '?' + q : ''}`);

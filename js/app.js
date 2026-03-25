@@ -52,6 +52,7 @@ function debounce(fn, ms) {
 
 /* ── STATE ── */
 let currentPage = 'dashboard';
+let currentAdminUser = null;
 let modalUserId = null;
 let selectedPayoutUser = null;
 let txOffset = 0;
@@ -62,6 +63,7 @@ let procOrderOffset = 0;
 let procRiskOffset = 0;
 const PROC_LIMIT = 30;
 let procLastRiskCount = 0;
+let procModalOrderId = null;
 
 /* ══════════════════════════════════════════════
    NAVIGATION
@@ -118,10 +120,12 @@ function closeSidebar() {
    AUTH
 ══════════════════════════════════════════════ */
 function showAuth() {
+  currentAdminUser = null;
   document.getElementById('authScreen').classList.remove('hidden');
   document.getElementById('adminApp').classList.add('hidden');
 }
 function showApp(user) {
+  currentAdminUser = user || null;
   document.getElementById('authScreen').classList.add('hidden');
   document.getElementById('adminApp').classList.remove('hidden');
   const initials = (user.full_name || 'A').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -767,6 +771,11 @@ function riskBadge(level) {
   return badge(`risk-${safe}`, safe);
 }
 
+function reviewBadge(state) {
+  const safe = state || 'none';
+  return badge(`review-${safe}`, safe);
+}
+
 function parseRiskFlags(raw) {
   if (Array.isArray(raw)) return raw;
   if (!raw) return [];
@@ -804,11 +813,13 @@ async function loadFraudStats() {
     const data = res.data || {};
     const byStatus = data.by_status || [];
     const byLevel = data.by_level || [];
+    const byReview = data.by_review_state || [];
     const unresolved = data.unresolved_events || [];
     const recentCritical = data.recent_critical || [];
 
     const statusMap = Object.fromEntries(byStatus.map(s => [s.status, Number(s.cnt || 0)]));
     const levelMap = Object.fromEntries(byLevel.map(s => [s.risk_level, Number(s.cnt || 0)]));
+    const reviewMap = Object.fromEntries(byReview.map(s => [s.review_state, Number(s.cnt || 0)]));
     const unresolvedTotal = unresolved.reduce((sum, row) => sum + Number(row.cnt || 0), 0);
     const ordersTotal = byStatus.reduce((sum, row) => sum + Number(row.cnt || 0), 0);
 
@@ -817,6 +828,8 @@ async function loadFraudStats() {
     document.getElementById('procCriticalTotal').textContent = `${levelMap.critical || 0}`;
     document.getElementById('procUnresolvedTotal').textContent = `${unresolvedTotal}`;
     document.getElementById('procCompletedTotal').textContent = `${statusMap.completed || 0}`;
+    document.getElementById('procReviewPendingTotal').textContent = `${data.review_pending_total ?? (reviewMap.pending || 0)}`;
+    document.getElementById('procAssignedTotal').textContent = `${data.assigned_total ?? 0}`;
 
     renderProcBars('procStatusBars', byStatus, 'status');
     renderProcBars('procRiskBars', byLevel, 'risk');
@@ -870,10 +883,20 @@ async function loadPaymentOrders(offset = 0) {
   const params = { limit: PROC_LIMIT, offset };
   const status = document.getElementById('procOrderStatusFilter')?.value || '';
   const risk = document.getElementById('procOrderRiskFilter')?.value || '';
+  const reviewState = document.getElementById('procOrderReviewFilter')?.value || '';
+  const assignedFilter = document.getElementById('procOrderAssignedFilter')?.value || '';
   const userId = Number(document.getElementById('procOrderUserFilter')?.value || 0);
+  const search = document.getElementById('procOrderSearchFilter')?.value.trim() || '';
   if (status) params.status = status;
   if (risk) params.risk_level = risk;
+  if (reviewState) params.review_state = reviewState;
+  if (assignedFilter === 'me' && currentAdminUser?.id) {
+    params.assigned_admin_id = currentAdminUser.id;
+  } else if (assignedFilter === 'unassigned') {
+    params.assigned_mode = 'unassigned';
+  }
   if (userId > 0) params.user_id = userId;
+  if (search) params.search = search;
 
   try {
     const res = await api.listPaymentOrders(params);
@@ -881,12 +904,15 @@ async function loadPaymentOrders(offset = 0) {
     const total = Number(res.total || 0);
     const body = document.getElementById('procOrdersBody');
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="8" class="empty-state">Ордерів не знайдено.</td></tr>';
+      body.innerHTML = '<tr><td colspan="11" class="empty-state">Ордерів не знайдено.</td></tr>';
     } else {
       body.innerHTML = rows.map(row => {
         const flags = parseRiskFlags(row.risk_flags);
         const flagsText = flags.length ? flags.join(', ') : '—';
         const route = `${escHtml(row.sender_number || '—')} → ${escHtml(row.recipient_number || '—')}`;
+        const assignee = row.assigned_admin_name
+          ? `${escHtml(row.assigned_admin_name)} #${row.assigned_admin_id || ''}`
+          : '—';
         return `
           <tr>
             <td>#${row.id}</td>
@@ -896,8 +922,16 @@ async function loadPaymentOrders(offset = 0) {
             <td class="${row.status === 'completed' ? 'amount-in' : 'amount-out'}">${fmtMoney(row.amount)}</td>
             <td>${statusBadge(row.status)}</td>
             <td>${riskBadge(row.risk_level)}</td>
+            <td>${reviewBadge(row.review_state)}</td>
+            <td class="proc-flags" title="${escHtml(assignee)}">${assignee}</td>
             <td class="proc-flags" title="${escHtml(flagsText + (row.failure_reason ? ' | fail: ' + row.failure_reason : ''))}">
               ${escHtml(flagsText)}
+            </td>
+            <td>
+              <div class="tx-row-actions">
+                <button class="tx-mini-btn" onclick="openPaymentOrderCase(${row.id})">Case</button>
+                <button class="tx-mini-btn" onclick="assignPaymentOrderToMe(${row.id})">Take</button>
+              </div>
             </td>
           </tr>
         `;
@@ -909,6 +943,162 @@ async function loadPaymentOrders(offset = 0) {
   }
 }
 window.loadPaymentOrders = loadPaymentOrders;
+
+function setProcModalMessage(msg, type = 'success') {
+  const el = document.getElementById('procModalMsg');
+  if (!el) return;
+  el.textContent = msg;
+  el.className = `form-msg ${type}`;
+}
+
+function clearProcModalMessage() {
+  const el = document.getElementById('procModalMsg');
+  if (!el) return;
+  el.className = 'form-msg hidden';
+  el.textContent = '';
+}
+
+function formatEventType(eventType) {
+  const map = {
+    assigned: 'Призначено',
+    note: 'Нотатка',
+    decision_approved: 'Рішення: approve',
+    decision_rejected: 'Рішення: reject',
+    decision_escalated: 'Рішення: escalate',
+    decision_cleared: 'Скидання рішення',
+  };
+  return map[eventType] || eventType || 'event';
+}
+
+function renderProcTimeline(items = []) {
+  const wrap = document.getElementById('procModalTimeline');
+  if (!wrap) return;
+  if (!items.length) {
+    wrap.innerHTML = '<div class="mini-chart-empty">Подій ще немає.</div>';
+    return;
+  }
+  wrap.innerHTML = items.map(item => `
+    <div class="proc-timeline-item">
+      <div class="proc-timeline-head">
+        <div class="proc-timeline-type">${escHtml(formatEventType(item.event_type))}</div>
+        <div class="proc-timeline-meta">${fmt(item.created_at)}</div>
+      </div>
+      <div class="proc-timeline-meta">${escHtml(item.actor_name || 'System')} ${item.actor_user_id ? `#${item.actor_user_id}` : ''}</div>
+      <div class="proc-timeline-details">${escHtml(item.details || '—')}</div>
+    </div>
+  `).join('');
+}
+
+function renderPaymentOrderCase(order, timeline = []) {
+  document.getElementById('procModalTitle').textContent = `Платіжний ордер #${order.id}`;
+  document.getElementById('procModalBadges').innerHTML = `${statusBadge(order.status)} ${riskBadge(order.risk_level)} ${reviewBadge(order.review_state)}`;
+  document.getElementById('procModalId').textContent = `#${order.id}`;
+  document.getElementById('procModalUser').textContent = `${order.initiator_name || '—'}${order.initiator_user_id ? ` #${order.initiator_user_id}` : ''}`;
+  document.getElementById('procModalRoute').textContent = `${order.sender_number || '—'} -> ${order.recipient_number || '—'}`;
+  document.getElementById('procModalAmount').textContent = fmtMoney(order.amount);
+  document.getElementById('procModalStatus').innerHTML = statusBadge(order.status);
+  document.getElementById('procModalRisk').innerHTML = riskBadge(order.risk_level);
+  document.getElementById('procModalReview').innerHTML = reviewBadge(order.review_state);
+  document.getElementById('procModalAssignee').textContent = order.assigned_admin_name
+    ? `${order.assigned_admin_name} #${order.assigned_admin_id}`
+    : '—';
+  document.getElementById('procModalDecisionNote').textContent = order.decision_note || '—';
+  document.getElementById('procModalAssignUserId').value = order.assigned_admin_id || currentAdminUser?.id || '';
+  renderProcTimeline(timeline);
+}
+
+async function refreshPaymentOrderCase() {
+  if (!procModalOrderId) return;
+  const [orderRes, timelineRes] = await Promise.all([
+    api.getPaymentOrder(procModalOrderId),
+    api.getPaymentOrderTimeline(procModalOrderId, 250),
+  ]);
+  renderPaymentOrderCase(orderRes.data || {}, timelineRes.data || []);
+}
+
+async function openPaymentOrderCase(orderId) {
+  procModalOrderId = Number(orderId);
+  document.getElementById('procOrderModal').classList.remove('hidden');
+  clearProcModalMessage();
+  document.getElementById('procModalTimeline').innerHTML = '<div class="mini-chart-empty">Завантаження…</div>';
+  try {
+    await refreshPaymentOrderCase();
+  } catch (err) {
+    showToast('Помилка кейсу: ' + err.message, 'error');
+  }
+}
+window.openPaymentOrderCase = openPaymentOrderCase;
+
+function closePaymentOrderCase() {
+  document.getElementById('procOrderModal').classList.add('hidden');
+  procModalOrderId = null;
+}
+
+async function assignPaymentOrderToMe(orderId) {
+  if (!currentAdminUser?.id) {
+    showToast('Немає активного admin-користувача.', 'error');
+    return;
+  }
+  try {
+    await api.assignPaymentOrder(orderId, { admin_user_id: currentAdminUser.id });
+    showToast(`Ордер #${orderId} призначено на вас.`, 'success');
+    await Promise.all([loadPaymentOrders(procOrderOffset), loadFraudStats()]);
+    if (procModalOrderId === Number(orderId)) {
+      await refreshPaymentOrderCase();
+    }
+  } catch (err) {
+    showToast('Помилка assign: ' + err.message, 'error');
+  }
+}
+window.assignPaymentOrderToMe = assignPaymentOrderToMe;
+
+async function assignOpenPaymentOrder() {
+  if (!procModalOrderId) return;
+  const assigneeRaw = Number(document.getElementById('procModalAssignUserId').value || 0);
+  const note = (document.getElementById('procModalDecisionInput').value || '').trim();
+  const assignee = assigneeRaw > 0 ? assigneeRaw : (currentAdminUser?.id || 0);
+  if (assignee <= 0) {
+    setProcModalMessage('Вкажіть коректний Admin User ID.', 'error');
+    return;
+  }
+  try {
+    await api.assignPaymentOrder(procModalOrderId, { admin_user_id: assignee, note });
+    setProcModalMessage('Ордер призначено.', 'success');
+    await Promise.all([loadPaymentOrders(procOrderOffset), loadFraudStats(), refreshPaymentOrderCase()]);
+  } catch (err) {
+    setProcModalMessage(err.message, 'error');
+  }
+}
+
+async function decideOpenPaymentOrder(decision) {
+  if (!procModalOrderId) return;
+  const note = (document.getElementById('procModalDecisionInput').value || '').trim();
+  try {
+    await api.decidePaymentOrder(procModalOrderId, { decision, note });
+    setProcModalMessage(`Рішення ${decision} застосовано.`, 'success');
+    await Promise.all([loadPaymentOrders(procOrderOffset), loadFraudStats(), refreshPaymentOrderCase()]);
+  } catch (err) {
+    setProcModalMessage(err.message, 'error');
+  }
+}
+
+async function addOpenPaymentOrderNote() {
+  if (!procModalOrderId) return;
+  const input = document.getElementById('procModalAddNoteInput');
+  const note = (input.value || '').trim();
+  if (!note) {
+    setProcModalMessage('Введіть текст нотатки.', 'error');
+    return;
+  }
+  try {
+    await api.addPaymentOrderNote(procModalOrderId, note);
+    input.value = '';
+    setProcModalMessage('Нотатку додано.', 'success');
+    await Promise.all([loadPaymentOrders(procOrderOffset), refreshPaymentOrderCase()]);
+  } catch (err) {
+    setProcModalMessage(err.message, 'error');
+  }
+}
 
 function renderRiskPagination(offset, limit) {
   const bar = document.getElementById('procRiskPagination');
@@ -988,7 +1178,10 @@ document.getElementById('procOrderApplyBtn')?.addEventListener('click', () => lo
 document.getElementById('procOrderClearBtn')?.addEventListener('click', () => {
   document.getElementById('procOrderStatusFilter').value = '';
   document.getElementById('procOrderRiskFilter').value = '';
+  document.getElementById('procOrderReviewFilter').value = '';
+  document.getElementById('procOrderAssignedFilter').value = '';
   document.getElementById('procOrderUserFilter').value = '';
+  document.getElementById('procOrderSearchFilter').value = '';
   loadPaymentOrders(0);
 });
 document.getElementById('procRiskApplyBtn')?.addEventListener('click', () => loadPaymentRiskEvents(0));
@@ -998,6 +1191,18 @@ document.getElementById('procRiskClearBtn')?.addEventListener('click', () => {
   document.getElementById('procRiskUserFilter').value = '';
   loadPaymentRiskEvents(0);
 });
+document.getElementById('procOrderSearchFilter')?.addEventListener('input', debounce(() => loadPaymentOrders(0), 380));
+
+document.getElementById('procModalClose')?.addEventListener('click', closePaymentOrderCase);
+document.getElementById('procOrderModal')?.addEventListener('click', (e) => {
+  if (e.target === document.getElementById('procOrderModal')) closePaymentOrderCase();
+});
+document.getElementById('procModalAssignBtn')?.addEventListener('click', assignOpenPaymentOrder);
+document.getElementById('procModalApproveBtn')?.addEventListener('click', () => decideOpenPaymentOrder('approve'));
+document.getElementById('procModalRejectBtn')?.addEventListener('click', () => decideOpenPaymentOrder('reject'));
+document.getElementById('procModalEscalateBtn')?.addEventListener('click', () => decideOpenPaymentOrder('escalate'));
+document.getElementById('procModalClearBtn')?.addEventListener('click', () => decideOpenPaymentOrder('clear'));
+document.getElementById('procModalAddNoteBtn')?.addEventListener('click', addOpenPaymentOrderNote);
 
 /* ══════════════════════════════════════════════
    PAYOUTS PAGE
