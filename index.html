@@ -413,6 +413,29 @@
         <button class="btn-secondary" id="procSlaClearBtn">Скинути</button>
         <button class="btn-secondary" id="procSlaAutoEscalateBtn">Auto-escalate overdue</button>
       </div>
+      <div class="filters-bar wrap proc-bulk-bar">
+        <label class="proc-check">
+          <input type="checkbox" id="procSlaSelectAll" />
+          Вибрати сторінку
+        </label>
+        <select id="procSlaBulkAction" class="filter-select">
+          <option value="">Bulk action</option>
+          <option value="assign">assign</option>
+          <option value="escalate">escalate</option>
+          <option value="approve">approve</option>
+          <option value="reject">reject</option>
+          <option value="clear_review">clear_review</option>
+          <option value="note">note</option>
+        </select>
+        <input type="number" id="procSlaBulkAssignee" class="filter-input" placeholder="Admin ID (для assign)" min="1" />
+        <input type="text" id="procSlaBulkNote" class="filter-input" placeholder="Коментар (для reject/escalate/note)" />
+        <label class="proc-check">
+          <input type="checkbox" id="procSlaBulkOnlyOverdue" />
+          only overdue
+        </label>
+        <button class="btn-secondary" id="procSlaBulkRunBtn">Run bulk</button>
+        <span class="count-badge" id="procSlaSelectedCount">0 selected</span>
+      </div>
       <div class="tx-registry-grid proc-sla-summary-grid">
         <div class="registry-card">
           <div class="registry-label">SLA total</div>
@@ -442,12 +465,44 @@
       <div class="table-wrap">
         <table class="data-table">
           <thead><tr>
-            <th>Priority</th><th>ID</th><th>User</th><th>Сума</th><th>Risk</th><th>Age</th><th>Due</th><th>Assignee</th><th>Review</th><th>Дії</th>
+            <th><input type="checkbox" id="procSlaSelectAllHead" /></th><th>Priority</th><th>ID</th><th>User</th><th>Сума</th><th>Risk</th><th>Age</th><th>Due</th><th>Assignee</th><th>Review</th><th>Дії</th>
           </tr></thead>
           <tbody id="procSlaBody"></tbody>
         </table>
       </div>
       <div class="pagination-bar" id="procSlaPagination"></div>
+
+      <div class="section-title">Команда процесингу</div>
+      <div class="tx-registry-grid proc-workload-summary-grid">
+        <div class="registry-card">
+          <div class="registry-label">Open queue</div>
+          <div class="registry-value" id="procWorkOpenTotal">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Assignees</div>
+          <div class="registry-value" id="procWorkAssigneesTotal">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Unassigned</div>
+          <div class="registry-value" id="procWorkUnassignedTotal">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Overdue</div>
+          <div class="registry-value red" id="procWorkOverdueTotal">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Critical risk</div>
+          <div class="registry-value red" id="procWorkCriticalTotal">—</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr>
+            <th>Operator</th><th>Assigned</th><th>Overdue</th><th>Critical</th><th>Escalated</th><th>Avg age</th><th>Priority mix</th>
+          </tr></thead>
+          <tbody id="procWorkloadBody"></tbody>
+        </table>
+      </div>
 
       <div class="section-title">Критичні ордери</div>
       <div class="table-wrap">

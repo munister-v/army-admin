@@ -66,6 +66,7 @@ const PROC_LIMIT = 30;
 const PROC_SLA_LIMIT = 20;
 let procLastRiskCount = 0;
 let procModalOrderId = null;
+let procSlaSelectedIds = new Set();
 
 /* ══════════════════════════════════════════════
    NAVIGATION
@@ -971,6 +972,45 @@ function setSlaSummary(summary = {}) {
   document.getElementById('procSlaAvgAge').textContent = fmtMinutesHuman(summary.avg_age_minutes ?? 0);
 }
 
+function updateSlaSelectedCount() {
+  const badgeEl = document.getElementById('procSlaSelectedCount');
+  if (badgeEl) badgeEl.textContent = `${procSlaSelectedIds.size} selected`;
+}
+
+function clearSlaSelection() {
+  procSlaSelectedIds = new Set();
+  const selectAll = document.getElementById('procSlaSelectAll');
+  const selectAllHead = document.getElementById('procSlaSelectAllHead');
+  if (selectAll) selectAll.checked = false;
+  if (selectAllHead) selectAllHead.checked = false;
+  document.querySelectorAll('.proc-sla-check').forEach(cb => { cb.checked = false; });
+  updateSlaSelectedCount();
+}
+
+function toggleSlaOrderSelection(orderId, checked) {
+  const id = Number(orderId);
+  if (!id) return;
+  if (checked) procSlaSelectedIds.add(id);
+  else procSlaSelectedIds.delete(id);
+  updateSlaSelectedCount();
+}
+window.toggleSlaOrderSelection = toggleSlaOrderSelection;
+
+function toggleSlaPageSelection(checked) {
+  document.querySelectorAll('.proc-sla-check').forEach(cb => {
+    cb.checked = checked;
+    const id = Number(cb.dataset.orderId || 0);
+    if (!id) return;
+    if (checked) procSlaSelectedIds.add(id);
+    else procSlaSelectedIds.delete(id);
+  });
+  const selectAll = document.getElementById('procSlaSelectAll');
+  const selectAllHead = document.getElementById('procSlaSelectAllHead');
+  if (selectAll) selectAll.checked = checked;
+  if (selectAllHead) selectAllHead.checked = checked;
+  updateSlaSelectedCount();
+}
+
 function renderProcSlaPagination(total, offset, limit) {
   const bar = document.getElementById('procSlaPagination');
   if (!bar) return;
@@ -1028,15 +1068,18 @@ async function loadPaymentSlaQueue(offset = 0) {
     setSlaSummary(res.summary || {});
     const body = document.getElementById('procSlaBody');
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="10" class="empty-state">SLA ордерів не знайдено.</td></tr>';
+      body.innerHTML = '<tr><td colspan="11" class="empty-state">SLA ордерів не знайдено.</td></tr>';
+      clearSlaSelection();
     } else {
       body.innerHTML = rows.map(row => {
         const assignee = row.assigned_admin_name
           ? `${escHtml(row.assigned_admin_name)} #${row.assigned_admin_id || ''}`
           : '—';
         const review = row.review_state || 'none';
+        const checked = procSlaSelectedIds.has(Number(row.id)) ? 'checked' : '';
         return `
           <tr>
+            <td><input type="checkbox" class="proc-sla-check" data-order-id="${row.id}" ${checked} onchange="toggleSlaOrderSelection(${row.id}, this.checked)" /></td>
             <td>${priorityBadge(row.sla_priority || 'normal')}</td>
             <td>#${row.id}</td>
             <td>${escHtml(row.initiator_name || '—')} <span style="color:var(--text-muted)">#${row.initiator_user_id || '—'}</span></td>
@@ -1056,6 +1099,13 @@ async function loadPaymentSlaQueue(offset = 0) {
           </tr>
         `;
       }).join('');
+      const pageIds = rows.map(row => Number(row.id)).filter(Boolean);
+      const allSelectedOnPage = pageIds.length > 0 && pageIds.every(id => procSlaSelectedIds.has(id));
+      const selectAll = document.getElementById('procSlaSelectAll');
+      const selectAllHead = document.getElementById('procSlaSelectAllHead');
+      if (selectAll) selectAll.checked = allSelectedOnPage;
+      if (selectAllHead) selectAllHead.checked = allSelectedOnPage;
+      updateSlaSelectedCount();
     }
     renderProcSlaPagination(total, offset, PROC_SLA_LIMIT);
   } catch (err) {
@@ -1075,6 +1125,7 @@ async function escalateQueueOrder(orderId) {
       loadPaymentSlaQueue(procSlaOffset),
       loadPaymentOrders(procOrderOffset),
       loadFraudStats(),
+      loadProcessingWorkload(),
     ]);
     if (procModalOrderId === Number(orderId)) {
       await refreshPaymentOrderCase();
@@ -1096,9 +1147,94 @@ async function runSlaAutoEscalate() {
       loadPaymentSlaQueue(procSlaOffset),
       loadPaymentOrders(procOrderOffset),
       loadFraudStats(),
+      loadProcessingWorkload(),
     ]);
   } catch (err) {
     showToast('Помилка auto-escalate: ' + err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderPriorityMix(byPriority = {}) {
+  const c = Number(byPriority.critical || 0);
+  const h = Number(byPriority.high || 0);
+  const m = Number(byPriority.medium || 0);
+  const n = Number(byPriority.normal || 0);
+  return `<span class="priority-mix">C:${c} H:${h} M:${m} N:${n}</span>`;
+}
+
+async function loadProcessingWorkload() {
+  try {
+    const res = await api.getPaymentWorkload({ open_only: 'true' });
+    const rows = res.data || [];
+    const summary = res.summary || {};
+    document.getElementById('procWorkOpenTotal').textContent = `${summary.open_total ?? 0}`;
+    document.getElementById('procWorkAssigneesTotal').textContent = `${summary.assignees_total ?? 0}`;
+    document.getElementById('procWorkUnassignedTotal').textContent = `${summary.unassigned_total ?? 0}`;
+    document.getElementById('procWorkOverdueTotal').textContent = `${summary.overdue_total ?? 0}`;
+    document.getElementById('procWorkCriticalTotal').textContent = `${summary.critical_total ?? 0}`;
+
+    const body = document.getElementById('procWorkloadBody');
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="7" class="empty-state">Даних по workload немає.</td></tr>';
+    } else {
+      body.innerHTML = rows.map(row => `
+        <tr>
+          <td>${escHtml(row.admin_name || 'Unassigned')} ${row.admin_user_id ? `<span style="color:var(--text-muted)">#${row.admin_user_id}</span>` : ''}</td>
+          <td>${row.total || 0}</td>
+          <td class="amount-out">${row.overdue || 0}</td>
+          <td>${row.critical || 0}</td>
+          <td>${row.escalated || 0}</td>
+          <td>${fmtMinutesHuman(row.avg_age_minutes || 0)}</td>
+          <td>${renderPriorityMix(row.by_priority || {})}</td>
+        </tr>
+      `).join('');
+    }
+  } catch (err) {
+    showToast('Помилка workload: ' + err.message, 'error');
+  }
+}
+
+async function runSlaBulkAction() {
+  const action = document.getElementById('procSlaBulkAction')?.value || '';
+  const assigneeRaw = Number(document.getElementById('procSlaBulkAssignee')?.value || 0);
+  const note = (document.getElementById('procSlaBulkNote')?.value || '').trim();
+  const onlyOverdue = Boolean(document.getElementById('procSlaBulkOnlyOverdue')?.checked);
+  const ids = Array.from(procSlaSelectedIds);
+
+  if (!action) {
+    showToast('Оберіть bulk action.', 'error');
+    return;
+  }
+  if (!ids.length) {
+    showToast('Немає вибраних ордерів.', 'error');
+    return;
+  }
+
+  const payload = { ids, action, only_overdue: onlyOverdue };
+  if (action === 'assign') {
+    payload.admin_user_id = assigneeRaw > 0 ? assigneeRaw : (currentAdminUser?.id || 0);
+  }
+  if (note) payload.note = note;
+
+  const btn = document.getElementById('procSlaBulkRunBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api.runPaymentSlaBulkAction(payload);
+    const done = Number(res?.data?.success_count || 0);
+    const failed = Number(res?.data?.failed_count || 0);
+    showToast(`Bulk ${action}: success ${done}, failed ${failed}.`, failed ? 'error' : 'success');
+    clearSlaSelection();
+    await Promise.all([
+      loadPaymentSlaQueue(procSlaOffset),
+      loadPaymentOrders(procOrderOffset),
+      loadFraudStats(),
+      loadProcessingWorkload(),
+    ]);
+    if (procModalOrderId) await refreshPaymentOrderCase();
+  } catch (err) {
+    showToast('Помилка bulk action: ' + err.message, 'error');
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -1204,7 +1340,12 @@ async function assignPaymentOrderToMe(orderId) {
   try {
     await api.assignPaymentOrder(orderId, { admin_user_id: currentAdminUser.id });
     showToast(`Ордер #${orderId} призначено на вас.`, 'success');
-    await Promise.all([loadPaymentOrders(procOrderOffset), loadFraudStats()]);
+    await Promise.all([
+      loadPaymentOrders(procOrderOffset),
+      loadPaymentSlaQueue(procSlaOffset),
+      loadFraudStats(),
+      loadProcessingWorkload(),
+    ]);
     if (procModalOrderId === Number(orderId)) {
       await refreshPaymentOrderCase();
     }
@@ -1226,7 +1367,13 @@ async function assignOpenPaymentOrder() {
   try {
     await api.assignPaymentOrder(procModalOrderId, { admin_user_id: assignee, note });
     setProcModalMessage('Ордер призначено.', 'success');
-    await Promise.all([loadPaymentOrders(procOrderOffset), loadFraudStats(), refreshPaymentOrderCase()]);
+    await Promise.all([
+      loadPaymentOrders(procOrderOffset),
+      loadPaymentSlaQueue(procSlaOffset),
+      loadFraudStats(),
+      loadProcessingWorkload(),
+      refreshPaymentOrderCase(),
+    ]);
   } catch (err) {
     setProcModalMessage(err.message, 'error');
   }
@@ -1238,7 +1385,13 @@ async function decideOpenPaymentOrder(decision) {
   try {
     await api.decidePaymentOrder(procModalOrderId, { decision, note });
     setProcModalMessage(`Рішення ${decision} застосовано.`, 'success');
-    await Promise.all([loadPaymentOrders(procOrderOffset), loadFraudStats(), refreshPaymentOrderCase()]);
+    await Promise.all([
+      loadPaymentOrders(procOrderOffset),
+      loadPaymentSlaQueue(procSlaOffset),
+      loadFraudStats(),
+      loadProcessingWorkload(),
+      refreshPaymentOrderCase(),
+    ]);
   } catch (err) {
     setProcModalMessage(err.message, 'error');
   }
@@ -1256,7 +1409,12 @@ async function addOpenPaymentOrderNote() {
     await api.addPaymentOrderNote(procModalOrderId, note);
     input.value = '';
     setProcModalMessage('Нотатку додано.', 'success');
-    await Promise.all([loadPaymentOrders(procOrderOffset), refreshPaymentOrderCase()]);
+    await Promise.all([
+      loadPaymentOrders(procOrderOffset),
+      loadPaymentSlaQueue(procSlaOffset),
+      loadProcessingWorkload(),
+      refreshPaymentOrderCase(),
+    ]);
   } catch (err) {
     setProcModalMessage(err.message, 'error');
   }
@@ -1332,6 +1490,7 @@ async function loadProcessing() {
     loadFraudStats(),
     loadPaymentOrders(0),
     loadPaymentSlaQueue(0),
+    loadProcessingWorkload(),
     loadPaymentRiskEvents(0),
   ]);
 }
@@ -1361,10 +1520,18 @@ document.getElementById('procSlaClearBtn')?.addEventListener('click', () => {
   document.getElementById('procSlaAssignedFilter').value = '';
   document.getElementById('procSlaRiskFilter').value = '';
   document.getElementById('procSlaSearchFilter').value = '';
+  clearSlaSelection();
   loadPaymentSlaQueue(0);
 });
 document.getElementById('procSlaSearchFilter')?.addEventListener('input', debounce(() => loadPaymentSlaQueue(0), 380));
 document.getElementById('procSlaAutoEscalateBtn')?.addEventListener('click', runSlaAutoEscalate);
+document.getElementById('procSlaBulkRunBtn')?.addEventListener('click', runSlaBulkAction);
+document.getElementById('procSlaSelectAll')?.addEventListener('change', (e) => {
+  toggleSlaPageSelection(Boolean(e.target.checked));
+});
+document.getElementById('procSlaSelectAllHead')?.addEventListener('change', (e) => {
+  toggleSlaPageSelection(Boolean(e.target.checked));
+});
 
 document.getElementById('procModalClose')?.addEventListener('click', closePaymentOrderCase);
 document.getElementById('procOrderModal')?.addEventListener('click', (e) => {

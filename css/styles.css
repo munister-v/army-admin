@@ -669,6 +669,10 @@ body {
   border-color: rgba(200,168,75,.45);
   color: var(--gold);
 }
+.tx-mini-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
 
 .empty-state {
   padding: 32px;
@@ -972,6 +976,32 @@ body {
 
 .proc-sla-summary-grid {
   margin-bottom: 12px;
+}
+
+.proc-workload-summary-grid {
+  margin-bottom: 12px;
+}
+
+.proc-bulk-bar {
+  gap: 8px;
+  margin-top: -4px;
+}
+
+.proc-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: .82rem;
+}
+
+.proc-check input[type="checkbox"] {
+  accent-color: #7ea5ff;
+}
+
+.priority-mix {
+  font-size: .78rem;
+  color: var(--text-muted);
 }
 
 .sla-due-overdue {

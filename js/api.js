@@ -101,6 +101,13 @@ class AdminAPI {
   runPaymentSlaAutoEscalate(data = {}) {
     return this.post('/api/admin/payments/sla-auto-escalate', data);
   }
+  getPaymentWorkload(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get(`/api/admin/payments/workload${q ? '?' + q : ''}`);
+  }
+  runPaymentSlaBulkAction(data = {}) {
+    return this.post('/api/admin/payments/sla-bulk-action', data);
+  }
   createPayout(data)   { return this.post('/api/admin/payouts', data); }
 
   listAuditLogs(params = {}) {
