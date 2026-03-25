@@ -889,6 +889,96 @@ body {
   min-width: 140px;
 }
 
+.proc-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.proc-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.proc-title {
+  margin: 0 0 10px !important;
+}
+
+.proc-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.proc-bar-row {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  font-size: .78rem;
+}
+
+.proc-bar-label {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.proc-bar-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.08);
+  overflow: hidden;
+}
+
+.proc-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.proc-bar-fill.status { background: linear-gradient(90deg, #7ea5ff 0%, #4d75db 100%); }
+.proc-bar-fill.risk-low { background: linear-gradient(90deg, #4ade80 0%, #22c55e 100%); }
+.proc-bar-fill.risk-medium { background: linear-gradient(90deg, #facc15 0%, #eab308 100%); }
+.proc-bar-fill.risk-high { background: linear-gradient(90deg, #fb923c 0%, #f97316 100%); }
+.proc-bar-fill.risk-critical { background: linear-gradient(90deg, #f87171 0%, #ef4444 100%); }
+
+.proc-bar-value {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.badge-status {
+  background: rgba(126,165,255,.14);
+  color: #b6ccff;
+}
+
+.badge-risk-low { background: rgba(62,207,142,.14); color: var(--green); }
+.badge-risk-medium { background: rgba(250,204,21,.14); color: #facc15; }
+.badge-risk-high { background: rgba(251,146,60,.14); color: #fb923c; }
+.badge-risk-critical { background: rgba(248,113,113,.14); color: #f87171; }
+
+.proc-flags {
+  max-width: 230px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: .78rem;
+}
+
+.proc-detail {
+  max-width: 280px;
+  color: var(--text-muted);
+  font-size: .78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── TOAST ── */
 .toast {
   position: fixed;
@@ -947,6 +1037,7 @@ body {
   .tx-quick-range,
   .tx-filter-actions { grid-column: span 6; justify-content: flex-start; }
   .tx-registry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .proc-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 480px) {

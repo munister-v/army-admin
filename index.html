@@ -64,6 +64,10 @@
         <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
         Транзакції
       </a>
+      <a href="#" class="nav-item" data-page="processing">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a1 1 0 011 1v2.07a5 5 0 013.82 3.82H17a1 1 0 110 2h-2.18A5.002 5.002 0 0111 14.82V17a1 1 0 11-2 0v-2.18A5.002 5.002 0 015.18 11H3a1 1 0 110-2h2.18A5 5 0 019 5.07V3a1 1 0 011-1zm0 5a3 3 0 100 6 3 3 0 000-6z"/></svg>
+        Процесинг
+      </a>
       <a href="#" class="nav-item" data-page="payouts">
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clip-rule="evenodd"/></svg>
         Виплати
@@ -331,6 +335,120 @@
         </table>
       </div>
       <div class="pagination-bar" id="txPagination"></div>
+    </section>
+
+    <!-- ── PROCESSING PAGE ── -->
+    <section id="page-processing" class="page">
+      <div class="page-header">
+        <h2>Платіжний процесинг</h2>
+        <button class="btn-refresh" id="refreshProcessing">
+          <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+          Оновити
+        </button>
+      </div>
+
+      <div class="tx-registry-grid">
+        <div class="registry-card">
+          <div class="registry-label">Ордери (всього)</div>
+          <div class="registry-value" id="procOrdersTotal">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Blocked</div>
+          <div class="registry-value red" id="procBlockedTotal">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Critical</div>
+          <div class="registry-value red" id="procCriticalTotal">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Unresolved risk</div>
+          <div class="registry-value" id="procUnresolvedTotal">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Completed</div>
+          <div class="registry-value green" id="procCompletedTotal">—</div>
+        </div>
+      </div>
+
+      <div class="proc-grid">
+        <div class="proc-card">
+          <div class="section-title proc-title">Статуси ордерів</div>
+          <div id="procStatusBars" class="proc-bars"></div>
+        </div>
+        <div class="proc-card">
+          <div class="section-title proc-title">Рівні ризику</div>
+          <div id="procRiskBars" class="proc-bars"></div>
+        </div>
+      </div>
+
+      <div class="section-title">Критичні ордери</div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr>
+            <th>ID</th><th>Дата</th><th>Користувач</th><th>Sender</th><th>Сума</th>
+          </tr></thead>
+          <tbody id="procCriticalBody"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title">Реєстр платіжних ордерів</div>
+      <div class="filters-bar wrap">
+        <select id="procOrderStatusFilter" class="filter-select">
+          <option value="">Всі статуси</option>
+          <option value="pending">pending</option>
+          <option value="processing">processing</option>
+          <option value="completed">completed</option>
+          <option value="blocked">blocked</option>
+          <option value="failed">failed</option>
+        </select>
+        <select id="procOrderRiskFilter" class="filter-select">
+          <option value="">Всі ризики</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+          <option value="critical">critical</option>
+        </select>
+        <input type="number" id="procOrderUserFilter" class="filter-input" placeholder="User ID" min="1" />
+        <button class="btn-secondary" id="procOrderApplyBtn">Застосувати</button>
+        <button class="btn-secondary" id="procOrderClearBtn">Скинути</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr>
+            <th>ID</th><th>Дата</th><th>User</th><th>Sender → Recipient</th><th>Сума</th><th>Status</th><th>Risk</th><th>Flags</th>
+          </tr></thead>
+          <tbody id="procOrdersBody"></tbody>
+        </table>
+      </div>
+      <div class="pagination-bar" id="procOrdersPagination"></div>
+
+      <div class="section-title">Risk Events</div>
+      <div class="filters-bar wrap">
+        <select id="procRiskSeverityFilter" class="filter-select">
+          <option value="">Всі severity</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+          <option value="critical">critical</option>
+        </select>
+        <select id="procRiskResolvedFilter" class="filter-select">
+          <option value="">Всі</option>
+          <option value="false">Невирішені</option>
+          <option value="true">Вирішені</option>
+        </select>
+        <input type="number" id="procRiskUserFilter" class="filter-input" placeholder="User ID" min="1" />
+        <button class="btn-secondary" id="procRiskApplyBtn">Застосувати</button>
+        <button class="btn-secondary" id="procRiskClearBtn">Скинути</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr>
+            <th>ID</th><th>Дата</th><th>Order</th><th>User</th><th>Severity</th><th>Подія</th><th>Деталі</th><th>Дія</th>
+          </tr></thead>
+          <tbody id="procRiskBody"></tbody>
+        </table>
+      </div>
+      <div class="pagination-bar" id="procRiskPagination"></div>
     </section>
 
     <!-- ── PAYOUTS PAGE ── -->

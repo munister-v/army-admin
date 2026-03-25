@@ -58,6 +58,10 @@ let txOffset = 0;
 let txLimit = 50;
 let txCurrentRows = [];
 let txDetailTx = null;
+let procOrderOffset = 0;
+let procRiskOffset = 0;
+const PROC_LIMIT = 30;
+let procLastRiskCount = 0;
 
 /* ══════════════════════════════════════════════
    NAVIGATION
@@ -70,7 +74,14 @@ function navigate(page) {
   if (section) section.classList.add('active');
   const navItem = document.querySelector(`[data-page="${page}"]`);
   if (navItem) navItem.classList.add('active');
-  const titles = { dashboard: 'Дешборд', users: 'Користувачі', transactions: 'Транзакції', payouts: 'Виплати', audit: 'Аудит' };
+  const titles = {
+    dashboard: 'Дешборд',
+    users: 'Користувачі',
+    transactions: 'Транзакції',
+    processing: 'Процесинг',
+    payouts: 'Виплати',
+    audit: 'Аудит',
+  };
   document.getElementById('topbarTitle').textContent = titles[page] || page;
   closeSidebar();
   loadPage(page);
@@ -81,6 +92,7 @@ function loadPage(page) {
     case 'dashboard':    loadDashboard(); break;
     case 'users':        loadUsers(); break;
     case 'transactions': loadTransactions(); break;
+    case 'processing':   loadProcessing(); break;
     case 'audit':        loadAuditLogs(); break;
   }
 }
@@ -435,23 +447,17 @@ async function loadTransactions(offset = 0) {
   if (userId > 0) params.user_id = userId;
   if (minAmountRaw !== '' && Number(minAmountRaw) >= 0) params.min_amount = Number(minAmountRaw);
   if (maxAmountRaw !== '' && Number(maxAmountRaw) >= 0) params.max_amount = Number(maxAmountRaw);
+  params.sort_by = sortBy;
 
   try {
     const res   = await api.listTransactions(params);
-    let rows    = res.data  || [];
+    const rows  = res.data  || [];
     const total = res.total || 0;
-
-    if (sortBy === 'oldest') {
-      rows = rows.slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    } else if (sortBy === 'amount_desc') {
-      rows = rows.slice().sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0));
-    } else if (sortBy === 'amount_asc') {
-      rows = rows.slice().sort((a, b) => Number(a.amount || 0) - Number(b.amount || 0));
-    }
+    const summary = res.summary || null;
 
     txCurrentRows = rows;
     document.getElementById('txCount').textContent = `${total} транзакцій`;
-    updateTxRegistry(rows);
+    updateTxRegistry(rows, summary);
 
     document.getElementById('txBody').innerHTML = rows.map(tx => `
       <tr>
@@ -503,17 +509,26 @@ function renderPagination(total, offset, limit) {
   bar.innerHTML = html;
 }
 
-function updateTxRegistry(rows) {
-  const inTotal = rows
+function updateTxRegistry(rows, summary = null) {
+  let inTotal = rows
     .filter(tx => tx.direction === 'in')
     .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-  const outTotal = rows
+  let outTotal = rows
     .filter(tx => tx.direction === 'out')
     .reduce((sum, tx) => sum + Number(tx.amount || 0), 0);
-  const net = inTotal - outTotal;
-  const avg = rows.length ? (inTotal + outTotal) / rows.length : 0;
+  let net = inTotal - outTotal;
+  let avg = rows.length ? (inTotal + outTotal) / rows.length : 0;
+  let count = rows.length;
 
-  document.getElementById('txRegPageCount').textContent = `${rows.length}`;
+  if (summary && typeof summary === 'object') {
+    inTotal = Number(summary.total_in || 0);
+    outTotal = Number(summary.total_out || 0);
+    net = Number(summary.net || 0);
+    avg = Number(summary.avg_amount || 0);
+    count = Number(summary.count || 0);
+  }
+
+  document.getElementById('txRegPageCount').textContent = `${count}`;
   document.getElementById('txRegIn').textContent = fmtMoney(inTotal);
   document.getElementById('txRegOut').textContent = fmtMoney(outTotal);
   document.getElementById('txRegNet').textContent = fmtMoney(net);
@@ -739,6 +754,250 @@ document.getElementById('txOpenUserBtn').addEventListener('click', () => {
   openUserModal(txDetailTx.user_id);
 });
 document.getElementById('txSearchFilter').addEventListener('input', debounce(() => loadTransactions(0), 420));
+
+/* ══════════════════════════════════════════════
+   PAYMENT PROCESSING
+══════════════════════════════════════════════ */
+function statusBadge(status) {
+  return badge('status', status || '—');
+}
+
+function riskBadge(level) {
+  const safe = level || 'low';
+  return badge(`risk-${safe}`, safe);
+}
+
+function parseRiskFlags(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (!raw) return [];
+  try { return JSON.parse(raw); } catch { return []; }
+}
+
+function renderProcBars(containerId, rows, kind = 'status') {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  if (!rows.length) {
+    container.innerHTML = '<div class="mini-chart-empty">Немає даних</div>';
+    return;
+  }
+  const max = Math.max(...rows.map(r => Number(r.cnt || 0)), 1);
+  container.innerHTML = rows.map(row => {
+    const label = row.status || row.risk_level || '—';
+    const cnt = Number(row.cnt || 0);
+    const pct = Math.max(6, (cnt / max) * 100);
+    const cls = kind === 'risk'
+      ? `risk-${String(label).toLowerCase()}`
+      : 'status';
+    return `
+      <div class="proc-bar-row">
+        <div class="proc-bar-label">${escHtml(label)}</div>
+        <div class="proc-bar-track"><div class="proc-bar-fill ${cls}" style="width:${pct}%"></div></div>
+        <div class="proc-bar-value">${cnt}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function loadFraudStats() {
+  try {
+    const res = await api.getFraudStats();
+    const data = res.data || {};
+    const byStatus = data.by_status || [];
+    const byLevel = data.by_level || [];
+    const unresolved = data.unresolved_events || [];
+    const recentCritical = data.recent_critical || [];
+
+    const statusMap = Object.fromEntries(byStatus.map(s => [s.status, Number(s.cnt || 0)]));
+    const levelMap = Object.fromEntries(byLevel.map(s => [s.risk_level, Number(s.cnt || 0)]));
+    const unresolvedTotal = unresolved.reduce((sum, row) => sum + Number(row.cnt || 0), 0);
+    const ordersTotal = byStatus.reduce((sum, row) => sum + Number(row.cnt || 0), 0);
+
+    document.getElementById('procOrdersTotal').textContent = `${ordersTotal}`;
+    document.getElementById('procBlockedTotal').textContent = `${statusMap.blocked || 0}`;
+    document.getElementById('procCriticalTotal').textContent = `${levelMap.critical || 0}`;
+    document.getElementById('procUnresolvedTotal').textContent = `${unresolvedTotal}`;
+    document.getElementById('procCompletedTotal').textContent = `${statusMap.completed || 0}`;
+
+    renderProcBars('procStatusBars', byStatus, 'status');
+    renderProcBars('procRiskBars', byLevel, 'risk');
+
+    const criticalBody = document.getElementById('procCriticalBody');
+    if (!recentCritical.length) {
+      criticalBody.innerHTML = '<tr><td colspan="5" class="empty-state">Критичних ордерів немає.</td></tr>';
+    } else {
+      criticalBody.innerHTML = recentCritical.map(row => `
+        <tr>
+          <td>#${row.id}</td>
+          <td style="color:var(--text-muted);font-size:.8rem">${fmt(row.created_at)}</td>
+          <td>${escHtml(row.full_name || '—')}</td>
+          <td><code>${escHtml(row.sender || '—')}</code></td>
+          <td class="amount-out">${fmtMoney(row.amount)}</td>
+        </tr>
+      `).join('');
+    }
+  } catch (err) {
+    showToast('Помилка процесингу: ' + err.message, 'error');
+  }
+}
+
+function renderProcOrdersPagination(total, offset, limit) {
+  const bar = document.getElementById('procOrdersPagination');
+  if (!bar) return;
+  const pages = Math.ceil(total / limit);
+  const cur = Math.floor(offset / limit);
+  if (pages <= 1) { bar.innerHTML = ''; return; }
+
+  let html = `<button class="page-btn" ${cur === 0 ? 'disabled' : ''} onclick="loadPaymentOrders(${(cur - 1) * limit})">‹</button>`;
+  const start = Math.max(0, cur - 2);
+  const end = Math.min(pages - 1, cur + 2);
+  if (start > 0) {
+    html += `<button class="page-btn" onclick="loadPaymentOrders(0)">1</button>`;
+    if (start > 1) html += `<span style="color:var(--text-muted);padding:0 4px">…</span>`;
+  }
+  for (let i = start; i <= end; i++) {
+    html += `<button class="page-btn ${i === cur ? 'active' : ''}" onclick="loadPaymentOrders(${i * limit})">${i + 1}</button>`;
+  }
+  if (end < pages - 1) {
+    if (end < pages - 2) html += `<span style="color:var(--text-muted);padding:0 4px">…</span>`;
+    html += `<button class="page-btn" onclick="loadPaymentOrders(${(pages - 1) * limit})">${pages}</button>`;
+  }
+  html += `<button class="page-btn" ${cur >= pages - 1 ? 'disabled' : ''} onclick="loadPaymentOrders(${(cur + 1) * limit})">›</button>`;
+  bar.innerHTML = html;
+}
+
+async function loadPaymentOrders(offset = 0) {
+  procOrderOffset = offset;
+  const params = { limit: PROC_LIMIT, offset };
+  const status = document.getElementById('procOrderStatusFilter')?.value || '';
+  const risk = document.getElementById('procOrderRiskFilter')?.value || '';
+  const userId = Number(document.getElementById('procOrderUserFilter')?.value || 0);
+  if (status) params.status = status;
+  if (risk) params.risk_level = risk;
+  if (userId > 0) params.user_id = userId;
+
+  try {
+    const res = await api.listPaymentOrders(params);
+    const rows = res.data || [];
+    const total = Number(res.total || 0);
+    const body = document.getElementById('procOrdersBody');
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="8" class="empty-state">Ордерів не знайдено.</td></tr>';
+    } else {
+      body.innerHTML = rows.map(row => {
+        const flags = parseRiskFlags(row.risk_flags);
+        const flagsText = flags.length ? flags.join(', ') : '—';
+        const route = `${escHtml(row.sender_number || '—')} → ${escHtml(row.recipient_number || '—')}`;
+        return `
+          <tr>
+            <td>#${row.id}</td>
+            <td style="color:var(--text-muted);font-size:.8rem">${fmt(row.created_at)}</td>
+            <td>${escHtml(row.initiator_name || '—')} <span style="color:var(--text-muted)">#${row.initiator_user_id || '—'}</span></td>
+            <td><code>${route}</code></td>
+            <td class="${row.status === 'completed' ? 'amount-in' : 'amount-out'}">${fmtMoney(row.amount)}</td>
+            <td>${statusBadge(row.status)}</td>
+            <td>${riskBadge(row.risk_level)}</td>
+            <td class="proc-flags" title="${escHtml(flagsText + (row.failure_reason ? ' | fail: ' + row.failure_reason : ''))}">
+              ${escHtml(flagsText)}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+    renderProcOrdersPagination(total, offset, PROC_LIMIT);
+  } catch (err) {
+    showToast('Помилка ордерів: ' + err.message, 'error');
+  }
+}
+window.loadPaymentOrders = loadPaymentOrders;
+
+function renderRiskPagination(offset, limit) {
+  const bar = document.getElementById('procRiskPagination');
+  if (!bar) return;
+  const prevDisabled = offset <= 0 ? 'disabled' : '';
+  const nextDisabled = procLastRiskCount < limit ? 'disabled' : '';
+  bar.innerHTML = `
+    <button class="page-btn" ${prevDisabled} onclick="loadPaymentRiskEvents(${Math.max(0, offset - limit)})">‹</button>
+    <span style="color:var(--text-muted);font-size:.82rem">offset: ${offset}</span>
+    <button class="page-btn" ${nextDisabled} onclick="loadPaymentRiskEvents(${offset + limit})">›</button>
+  `;
+}
+
+async function loadPaymentRiskEvents(offset = 0) {
+  procRiskOffset = offset;
+  const params = { limit: PROC_LIMIT, offset };
+  const severity = document.getElementById('procRiskSeverityFilter')?.value || '';
+  const resolved = document.getElementById('procRiskResolvedFilter')?.value || '';
+  const userId = Number(document.getElementById('procRiskUserFilter')?.value || 0);
+  if (severity) params.severity = severity;
+  if (resolved) params.resolved = resolved;
+  if (userId > 0) params.user_id = userId;
+
+  try {
+    const res = await api.listPaymentRiskEvents(params);
+    const rows = res.data || [];
+    procLastRiskCount = rows.length;
+    const body = document.getElementById('procRiskBody');
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="8" class="empty-state">Risk events не знайдено.</td></tr>';
+    } else {
+      body.innerHTML = rows.map(row => `
+        <tr>
+          <td>#${row.id}</td>
+          <td style="color:var(--text-muted);font-size:.8rem">${fmt(row.created_at)}</td>
+          <td>${row.payment_order_id ? '#' + row.payment_order_id : '—'}</td>
+          <td>${escHtml(row.user_name || '—')} <span style="color:var(--text-muted)">#${row.user_id || '—'}</span></td>
+          <td>${riskBadge(row.severity || 'low')}</td>
+          <td>${escHtml(row.event_type || '—')}</td>
+          <td class="proc-detail" title="${escHtml(row.details || '—')}">${escHtml(row.details || '—')}</td>
+          <td>
+            ${row.resolved_at
+              ? '<span class="badge badge-status">resolved</span>'
+              : `<button class="tx-mini-btn" onclick="resolveRiskEventById(${row.id})">Resolve</button>`}
+          </td>
+        </tr>
+      `).join('');
+    }
+    renderRiskPagination(offset, PROC_LIMIT);
+  } catch (err) {
+    showToast('Помилка risk events: ' + err.message, 'error');
+  }
+}
+window.loadPaymentRiskEvents = loadPaymentRiskEvents;
+
+async function resolveRiskEventById(eventId) {
+  try {
+    await api.resolvePaymentRiskEvent(eventId);
+    showToast(`Risk event #${eventId} вирішено.`, 'success');
+    await Promise.all([loadPaymentRiskEvents(procRiskOffset), loadFraudStats()]);
+  } catch (err) {
+    showToast('Помилка resolve: ' + err.message, 'error');
+  }
+}
+window.resolveRiskEventById = resolveRiskEventById;
+
+async function loadProcessing() {
+  await Promise.all([
+    loadFraudStats(),
+    loadPaymentOrders(0),
+    loadPaymentRiskEvents(0),
+  ]);
+}
+
+document.getElementById('refreshProcessing')?.addEventListener('click', loadProcessing);
+document.getElementById('procOrderApplyBtn')?.addEventListener('click', () => loadPaymentOrders(0));
+document.getElementById('procOrderClearBtn')?.addEventListener('click', () => {
+  document.getElementById('procOrderStatusFilter').value = '';
+  document.getElementById('procOrderRiskFilter').value = '';
+  document.getElementById('procOrderUserFilter').value = '';
+  loadPaymentOrders(0);
+});
+document.getElementById('procRiskApplyBtn')?.addEventListener('click', () => loadPaymentRiskEvents(0));
+document.getElementById('procRiskClearBtn')?.addEventListener('click', () => {
+  document.getElementById('procRiskSeverityFilter').value = '';
+  document.getElementById('procRiskResolvedFilter').value = '';
+  document.getElementById('procRiskUserFilter').value = '';
+  loadPaymentRiskEvents(0);
+});
 
 /* ══════════════════════════════════════════════
    PAYOUTS PAGE

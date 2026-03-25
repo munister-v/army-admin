@@ -65,6 +65,23 @@ class AdminAPI {
   adjustUserBalance(userId, data) {
     return this.post(`/api/admin/users/${userId}/balance-adjust`, data);
   }
+  listPaymentOrders(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get(`/api/admin/payments/orders${q ? '?' + q : ''}`);
+  }
+  getPaymentOrder(orderId) {
+    return this.get(`/api/admin/payments/orders/${orderId}`);
+  }
+  listPaymentRiskEvents(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get(`/api/admin/payments/risk-events${q ? '?' + q : ''}`);
+  }
+  resolvePaymentRiskEvent(eventId) {
+    return this.post(`/api/admin/payments/risk-events/${eventId}/resolve`, {});
+  }
+  getFraudStats() {
+    return this.get('/api/admin/payments/fraud-stats');
+  }
   createPayout(data)   { return this.post('/api/admin/payouts', data); }
 
   listAuditLogs(params = {}) {
