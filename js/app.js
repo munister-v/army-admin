@@ -67,11 +67,100 @@ const PROC_SLA_LIMIT = 20;
 let procLastRiskCount = 0;
 let procModalOrderId = null;
 let procSlaSelectedIds = new Set();
+const PROCESSING_ROLES = new Set(['operator', 'admin', 'platform_admin']);
+const ADMIN_ROLES = new Set(['admin', 'platform_admin']);
+const OPERATOR_BULK_ACTIONS = new Set(['assign', 'escalate', 'note']);
+const FULL_ACCESS_PAGES = ['dashboard', 'users', 'transactions', 'processing', 'payouts', 'audit'];
+
+function normalizedRole(role) {
+  return String(role || '').trim().toLowerCase();
+}
+
+function isProcessingRole(role = currentAdminUser?.role) {
+  return PROCESSING_ROLES.has(normalizedRole(role));
+}
+
+function isAdminRole(role = currentAdminUser?.role) {
+  return ADMIN_ROLES.has(normalizedRole(role));
+}
+
+function isOperatorRole(role = currentAdminUser?.role) {
+  return normalizedRole(role) === 'operator';
+}
+
+function allowedPagesForRole(role = currentAdminUser?.role) {
+  if (isOperatorRole(role)) return ['processing'];
+  if (isAdminRole(role)) return FULL_ACCESS_PAGES;
+  return [];
+}
+
+function defaultPageForRole(role = currentAdminUser?.role) {
+  const pages = allowedPagesForRole(role);
+  return pages[0] || 'processing';
+}
+
+function canAccessPage(page, role = currentAdminUser?.role) {
+  return allowedPagesForRole(role).includes(page);
+}
+
+function configureBulkActionsByRole() {
+  const bulkActionSelect = document.getElementById('procSlaBulkAction');
+  if (!bulkActionSelect) return;
+  const admin = isAdminRole();
+
+  Array.from(bulkActionSelect.options || []).forEach(option => {
+    const value = String(option.value || '').trim().toLowerCase();
+    if (!value) {
+      option.disabled = false;
+      option.hidden = false;
+      return;
+    }
+    const allowed = admin || OPERATOR_BULK_ACTIONS.has(value);
+    option.disabled = !allowed;
+    option.hidden = !allowed;
+  });
+
+  const selected = String(bulkActionSelect.value || '').trim().toLowerCase();
+  if (selected && !admin && !OPERATOR_BULK_ACTIONS.has(selected)) {
+    bulkActionSelect.value = '';
+  }
+
+  const assigneeInput = document.getElementById('procSlaBulkAssignee');
+  if (assigneeInput) {
+    assigneeInput.disabled = !admin;
+    if (!admin) assigneeInput.value = `${currentAdminUser?.id || ''}`;
+  }
+}
+
+function applyRoleUi() {
+  const allowed = new Set(allowedPagesForRole());
+  document.querySelectorAll('.nav-item').forEach(item => {
+    const page = item.dataset.page;
+    item.classList.toggle('hidden', !allowed.has(page));
+  });
+
+  const operatorHint = document.getElementById('procRoleModeHint');
+  if (operatorHint) {
+    const operatorMode = isOperatorRole();
+    operatorHint.classList.toggle('hidden', !operatorMode);
+    if (operatorMode) {
+      operatorHint.textContent = 'Operator mode: only processing actions are available.';
+    }
+  }
+
+  const autoEsc = document.getElementById('procSlaAutoEscalateBtn');
+  if (autoEsc) autoEsc.classList.toggle('hidden', !isAdminRole());
+
+  configureBulkActionsByRole();
+}
 
 /* ══════════════════════════════════════════════
    NAVIGATION
 ══════════════════════════════════════════════ */
 function navigate(page) {
+  if (!canAccessPage(page)) {
+    page = defaultPageForRole();
+  }
   currentPage = page;
   document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
@@ -135,7 +224,8 @@ function showApp(user) {
   document.getElementById('sidebarAvatar').textContent = initials;
   document.getElementById('sidebarName').textContent = user.full_name || user.email;
   document.getElementById('sidebarRole').textContent = user.role;
-  navigate('dashboard');
+  applyRoleUi();
+  navigate(defaultPageForRole(user.role));
 }
 
 async function tryAutoLogin() {
@@ -143,7 +233,7 @@ async function tryAutoLogin() {
   try {
     const res = await api.me();
     const user = res.data;
-    if (!['admin', 'platform_admin'].includes(user?.role)) {
+    if (!isProcessingRole(user?.role)) {
       showToast('Недостатньо прав.', 'error');
       api.setToken('');
       showAuth();
@@ -168,9 +258,9 @@ document.getElementById('loginForm').addEventListener('submit', async e => {
     const res = await api.login(identity, password);
     const user = res.data?.user || res.user;
     api.setToken(res.data?.token || res.token);
-    if (!['admin', 'platform_admin'].includes(user?.role)) {
+    if (!isProcessingRole(user?.role)) {
       api.setToken('');
-      errEl.textContent = 'Доступ лише для адміністраторів.';
+      errEl.textContent = 'Доступ дозволено лише для operator/admin/platform_admin.';
       errEl.classList.remove('hidden');
       return;
     }
@@ -1057,6 +1147,109 @@ function renderSlaDue(remainingMinutes) {
   return `<span class="sla-due-ok">${fmtMinutesHuman(rem)}</span>`;
 }
 
+function canFinalizeApprovalFromInbox(row) {
+  if (!isAdminRole()) return false;
+  const requestedBy = Number(row?.approval_requested_by || 0);
+  return requestedBy <= 0 || requestedBy !== Number(currentAdminUser?.id || 0);
+}
+
+function renderApprovalInboxActions(row) {
+  const orderId = Number(row?.id || 0);
+  if (!orderId) return '—';
+  if (!isAdminRole()) {
+    return `
+      <div class="tx-row-actions">
+        <button class="tx-mini-btn" onclick="openPaymentOrderCase(${orderId})">Case</button>
+      </div>
+    `;
+  }
+  if (!canFinalizeApprovalFromInbox(row)) {
+    return `<span class="badge badge-review-pending">maker-lock</span>`;
+  }
+  return `
+    <div class="tx-row-actions">
+      <button class="tx-mini-btn" onclick="quickFinalizeApprovalFromInbox(${orderId}, true)">Approve</button>
+      <button class="tx-mini-btn" onclick="quickFinalizeApprovalFromInbox(${orderId}, false)">Deny</button>
+      <button class="tx-mini-btn" onclick="openPaymentOrderCase(${orderId})">Case</button>
+    </div>
+  `;
+}
+
+async function loadApprovalInbox() {
+  const body = document.getElementById('procApprovalInboxBody');
+  if (!body) return;
+
+  const params = {
+    limit: 12,
+    offset: 0,
+    open_only: 'true',
+    approval_state: 'requested',
+  };
+  if (isOperatorRole() && currentAdminUser?.id) {
+    params.assigned_admin_id = currentAdminUser.id;
+  }
+
+  try {
+    const res = await api.getPaymentSlaQueue(params);
+    const rows = res.data || [];
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="9" class="empty-state">Немає ордерів, що очікують погодження.</td></tr>';
+      return;
+    }
+
+    body.innerHTML = rows.map(row => {
+      const requestedBy = row.approval_requested_by_name
+        ? `${escHtml(row.approval_requested_by_name)} #${row.approval_requested_by || ''}`
+        : '—';
+      return `
+        <tr>
+          <td>#${row.id}</td>
+          <td style="color:var(--text-muted);font-size:.8rem">${fmt(row.created_at)}</td>
+          <td>${escHtml(row.initiator_name || '—')} <span style="color:var(--text-muted)">#${row.initiator_user_id || '—'}</span></td>
+          <td class="${row.status === 'completed' ? 'amount-in' : 'amount-out'}">${fmtMoney(row.amount)}</td>
+          <td>${riskBadge(row.risk_level)}</td>
+          <td><span class="badge badge-review-pending">${escHtml(row.approval_requested_action || '—')}</span></td>
+          <td class="proc-flags" title="${escHtml(requestedBy)}">${requestedBy}</td>
+          <td>${renderSlaDue(row.sla_remaining_minutes)}</td>
+          <td>${renderApprovalInboxActions(row)}</td>
+        </tr>
+      `;
+    }).join('');
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="9" class="empty-state">Помилка завантаження inbox: ${escHtml(err.message || 'unknown')}</td></tr>`;
+  }
+}
+
+async function quickFinalizeApprovalFromInbox(orderId, approve = true) {
+  if (!isAdminRole()) {
+    showToast('Finalize approval доступний лише адміністратору.', 'error');
+    return;
+  }
+  const note = approve
+    ? 'Approval finalized from inbox.'
+    : 'Approval denied from inbox (quick action).';
+  try {
+    await api.finalizePaymentOrderApproval(orderId, { approve: Boolean(approve), note });
+    showToast(
+      approve ? `Ордер #${orderId}: approval підтверджено.` : `Ордер #${orderId}: approval відхилено.`,
+      'success'
+    );
+    await Promise.all([
+      loadApprovalInbox(),
+      loadPaymentOrders(procOrderOffset),
+      loadPaymentSlaQueue(procSlaOffset),
+      loadFraudStats(),
+      loadProcessingWorkload(),
+    ]);
+    if (procModalOrderId === Number(orderId)) {
+      await refreshPaymentOrderCase();
+    }
+  } catch (err) {
+    showToast('Помилка approval inbox: ' + err.message, 'error');
+  }
+}
+window.quickFinalizeApprovalFromInbox = quickFinalizeApprovalFromInbox;
+
 async function loadPaymentSlaQueue(offset = 0) {
   procSlaOffset = offset;
   const params = { limit: PROC_SLA_LIMIT, offset, open_only: 'true' };
@@ -1140,6 +1333,7 @@ async function escalateQueueOrder(orderId) {
       loadPaymentOrders(procOrderOffset),
       loadFraudStats(),
       loadProcessingWorkload(),
+      loadApprovalInbox(),
     ]);
     if (procModalOrderId === Number(orderId)) {
       await refreshPaymentOrderCase();
@@ -1151,6 +1345,10 @@ async function escalateQueueOrder(orderId) {
 window.escalateQueueOrder = escalateQueueOrder;
 
 async function runSlaAutoEscalate() {
+  if (!isAdminRole()) {
+    showToast('Auto-escalate доступний лише адміністратору.', 'error');
+    return;
+  }
   const btn = document.getElementById('procSlaAutoEscalateBtn');
   if (btn) btn.disabled = true;
   try {
@@ -1162,6 +1360,7 @@ async function runSlaAutoEscalate() {
       loadPaymentOrders(procOrderOffset),
       loadFraudStats(),
       loadProcessingWorkload(),
+      loadApprovalInbox(),
     ]);
   } catch (err) {
     showToast('Помилка auto-escalate: ' + err.message, 'error');
@@ -1223,6 +1422,10 @@ async function runSlaBulkAction() {
     showToast('Оберіть bulk action.', 'error');
     return;
   }
+  if (!isAdminRole() && !OPERATOR_BULK_ACTIONS.has(action)) {
+    showToast('Для operator доступні bulk-дії: assign, escalate, note.', 'error');
+    return;
+  }
   if (!ids.length) {
     showToast('Немає вибраних ордерів.', 'error');
     return;
@@ -1230,7 +1433,9 @@ async function runSlaBulkAction() {
 
   const payload = { ids, action, only_overdue: onlyOverdue };
   if (action === 'assign') {
-    payload.admin_user_id = assigneeRaw > 0 ? assigneeRaw : (currentAdminUser?.id || 0);
+    payload.admin_user_id = isAdminRole()
+      ? (assigneeRaw > 0 ? assigneeRaw : (currentAdminUser?.id || 0))
+      : (currentAdminUser?.id || 0);
   }
   if (note) payload.note = note;
 
@@ -1247,6 +1452,7 @@ async function runSlaBulkAction() {
       loadPaymentOrders(procOrderOffset),
       loadFraudStats(),
       loadProcessingWorkload(),
+      loadApprovalInbox(),
     ]);
     if (procModalOrderId) await refreshPaymentOrderCase();
   } catch (err) {
@@ -1324,9 +1530,31 @@ function renderPaymentOrderCase(order, timeline = []) {
     ? `${order.assigned_admin_name} #${order.assigned_admin_id}`
     : '—';
   document.getElementById('procModalDecisionNote').textContent = order.decision_note || '—';
-  document.getElementById('procModalAssignUserId').value = order.assigned_admin_id || currentAdminUser?.id || '';
+  const assignInput = document.getElementById('procModalAssignUserId');
+  if (assignInput) {
+    assignInput.value = order.assigned_admin_id || currentAdminUser?.id || '';
+    assignInput.disabled = isOperatorRole();
+    if (isOperatorRole()) assignInput.value = currentAdminUser?.id || '';
+  }
   const denyBtn = document.getElementById('procModalApprovalDenyBtn');
-  if (denyBtn) denyBtn.disabled = String(order.approval_state || '').toLowerCase() !== 'requested';
+  if (denyBtn) {
+    const makerLock = Number(order.approval_requested_by || 0) === Number(currentAdminUser?.id || 0);
+    const denyDisabled = String(order.approval_state || '').toLowerCase() !== 'requested' || !isAdminRole() || makerLock;
+    denyBtn.disabled = denyDisabled;
+  }
+  const approveBtn = document.getElementById('procModalApproveBtn');
+  const rejectBtn = document.getElementById('procModalRejectBtn');
+  const clearBtn = document.getElementById('procModalClearBtn');
+  const escalateBtn = document.getElementById('procModalEscalateBtn');
+  const assignBtn = document.getElementById('procModalAssignBtn');
+  if (approveBtn) approveBtn.disabled = isOperatorRole();
+  if (rejectBtn) rejectBtn.disabled = isOperatorRole();
+  if (clearBtn) clearBtn.disabled = isOperatorRole();
+  if (assignBtn) assignBtn.disabled = false;
+  if (escalateBtn) {
+    const alreadyEscalated = String(order.review_state || '').toLowerCase() === 'escalated';
+    escalateBtn.disabled = alreadyEscalated;
+  }
   renderProcTimeline(timeline);
 }
 
@@ -1370,6 +1598,7 @@ async function assignPaymentOrderToMe(orderId) {
       loadPaymentSlaQueue(procSlaOffset),
       loadFraudStats(),
       loadProcessingWorkload(),
+      loadApprovalInbox(),
     ]);
     if (procModalOrderId === Number(orderId)) {
       await refreshPaymentOrderCase();
@@ -1384,7 +1613,9 @@ async function assignOpenPaymentOrder() {
   if (!procModalOrderId) return;
   const assigneeRaw = Number(document.getElementById('procModalAssignUserId').value || 0);
   const note = (document.getElementById('procModalDecisionInput').value || '').trim();
-  const assignee = assigneeRaw > 0 ? assigneeRaw : (currentAdminUser?.id || 0);
+  const assignee = isOperatorRole()
+    ? Number(currentAdminUser?.id || 0)
+    : (assigneeRaw > 0 ? assigneeRaw : (currentAdminUser?.id || 0));
   if (assignee <= 0) {
     setProcModalMessage('Вкажіть коректний Admin User ID.', 'error');
     return;
@@ -1397,6 +1628,7 @@ async function assignOpenPaymentOrder() {
       loadPaymentSlaQueue(procSlaOffset),
       loadFraudStats(),
       loadProcessingWorkload(),
+      loadApprovalInbox(),
       refreshPaymentOrderCase(),
     ]);
   } catch (err) {
@@ -1406,6 +1638,10 @@ async function assignOpenPaymentOrder() {
 
 async function decideOpenPaymentOrder(decision) {
   if (!procModalOrderId) return;
+  if (isOperatorRole() && decision !== 'escalate') {
+    setProcModalMessage('Для operator доступне лише рішення escalate.', 'error');
+    return;
+  }
   const note = (document.getElementById('procModalDecisionInput').value || '').trim();
   try {
     const res = await api.decidePaymentOrder(procModalOrderId, { decision, note });
@@ -1422,6 +1658,7 @@ async function decideOpenPaymentOrder(decision) {
       loadPaymentSlaQueue(procSlaOffset),
       loadFraudStats(),
       loadProcessingWorkload(),
+      loadApprovalInbox(),
       refreshPaymentOrderCase(),
     ]);
   } catch (err) {
@@ -1431,6 +1668,10 @@ async function decideOpenPaymentOrder(decision) {
 
 async function finalizeOpenPaymentOrderApproval(approve = false) {
   if (!procModalOrderId) return;
+  if (!isAdminRole()) {
+    setProcModalMessage('Finalize approval доступний лише адміністратору.', 'error');
+    return;
+  }
   const note = (document.getElementById('procModalDecisionInput').value || '').trim();
   try {
     await api.finalizePaymentOrderApproval(procModalOrderId, { approve: Boolean(approve), note });
@@ -1443,6 +1684,7 @@ async function finalizeOpenPaymentOrderApproval(approve = false) {
       loadPaymentSlaQueue(procSlaOffset),
       loadFraudStats(),
       loadProcessingWorkload(),
+      loadApprovalInbox(),
       refreshPaymentOrderCase(),
     ]);
   } catch (err) {
@@ -1466,6 +1708,7 @@ async function addOpenPaymentOrderNote() {
       loadPaymentOrders(procOrderOffset),
       loadPaymentSlaQueue(procSlaOffset),
       loadProcessingWorkload(),
+      loadApprovalInbox(),
       refreshPaymentOrderCase(),
     ]);
   } catch (err) {
@@ -1539,11 +1782,13 @@ async function resolveRiskEventById(eventId) {
 window.resolveRiskEventById = resolveRiskEventById;
 
 async function loadProcessing() {
+  configureBulkActionsByRole();
   await Promise.all([
     loadFraudStats(),
     loadPaymentOrders(0),
     loadPaymentSlaQueue(0),
     loadProcessingWorkload(),
+    loadApprovalInbox(),
     loadPaymentRiskEvents(0),
   ]);
 }

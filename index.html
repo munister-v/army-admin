@@ -346,6 +346,7 @@
           Оновити
         </button>
       </div>
+      <div class="proc-role-hint hidden" id="procRoleModeHint"></div>
 
       <div class="tx-registry-grid">
         <div class="registry-card">
@@ -466,6 +467,19 @@
           <div class="registry-value" id="procSlaAvgAge">—</div>
         </div>
       </div>
+
+      <div class="section-title">Approval inbox</div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr>
+            <th>ID</th><th>Дата</th><th>Користувач</th><th>Сума</th><th>Risk</th><th>Action</th><th>Requested by</th><th>Due</th><th>Дії</th>
+          </tr></thead>
+          <tbody id="procApprovalInboxBody">
+            <tr><td colspan="9" class="empty-state">Завантаження…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
       <div class="table-wrap">
         <table class="data-table">
           <thead><tr>
