@@ -67,10 +67,42 @@ const PROC_SLA_LIMIT = 20;
 let procLastRiskCount = 0;
 let procModalOrderId = null;
 let procSlaSelectedIds = new Set();
+const procRequestSeq = {
+  fraud: 0,
+  orders: 0,
+  sla: 0,
+  workload: 0,
+  inbox: 0,
+  risk: 0,
+};
 const PROCESSING_ROLES = new Set(['operator', 'admin', 'platform_admin']);
 const ADMIN_ROLES = new Set(['admin', 'platform_admin']);
 const OPERATOR_BULK_ACTIONS = new Set(['assign', 'escalate', 'note']);
 const FULL_ACCESS_PAGES = ['dashboard', 'users', 'transactions', 'processing', 'payouts', 'audit'];
+
+async function refreshProcessingViews({
+  fraud = false,
+  orders = false,
+  sla = false,
+  workload = false,
+  inbox = false,
+  risk = false,
+  caseModal = false,
+  ordersOffset = procOrderOffset,
+  slaOffset = procSlaOffset,
+  riskOffset = procRiskOffset,
+} = {}) {
+  const jobs = [];
+  if (fraud) jobs.push(loadFraudStats());
+  if (orders) jobs.push(loadPaymentOrders(ordersOffset));
+  if (sla) jobs.push(loadPaymentSlaQueue(slaOffset));
+  if (workload) jobs.push(loadProcessingWorkload());
+  if (inbox) jobs.push(loadApprovalInbox());
+  if (risk) jobs.push(loadPaymentRiskEvents(riskOffset));
+  if (caseModal && procModalOrderId) jobs.push(refreshPaymentOrderCase());
+  if (!jobs.length) return;
+  await Promise.all(jobs);
+}
 
 function normalizedRole(role) {
   return String(role || '').trim().toLowerCase();
@@ -922,8 +954,10 @@ function renderProcBars(containerId, rows, kind = 'status') {
 }
 
 async function loadFraudStats() {
+  const reqId = ++procRequestSeq.fraud;
   try {
     const res = await api.getFraudStats();
+    if (reqId !== procRequestSeq.fraud) return;
     const data = res.data || {};
     const byStatus = data.by_status || [];
     const byLevel = data.by_level || [];
@@ -963,6 +997,7 @@ async function loadFraudStats() {
       `).join('');
     }
   } catch (err) {
+    if (reqId !== procRequestSeq.fraud) return;
     showToast('Помилка процесингу: ' + err.message, 'error');
   }
 }
@@ -994,6 +1029,7 @@ function renderProcOrdersPagination(total, offset, limit) {
 
 async function loadPaymentOrders(offset = 0) {
   procOrderOffset = offset;
+  const reqId = ++procRequestSeq.orders;
   const params = { limit: PROC_LIMIT, offset };
   const status = document.getElementById('procOrderStatusFilter')?.value || '';
   const risk = document.getElementById('procOrderRiskFilter')?.value || '';
@@ -1014,6 +1050,7 @@ async function loadPaymentOrders(offset = 0) {
 
   try {
     const res = await api.listPaymentOrders(params);
+    if (reqId !== procRequestSeq.orders) return;
     const rows = res.data || [];
     const total = Number(res.total || 0);
     const body = document.getElementById('procOrdersBody');
@@ -1053,6 +1090,7 @@ async function loadPaymentOrders(offset = 0) {
     }
     renderProcOrdersPagination(total, offset, PROC_LIMIT);
   } catch (err) {
+    if (reqId !== procRequestSeq.orders) return;
     showToast('Помилка ордерів: ' + err.message, 'error');
   }
 }
@@ -1178,6 +1216,7 @@ function renderApprovalInboxActions(row) {
 async function loadApprovalInbox() {
   const body = document.getElementById('procApprovalInboxBody');
   if (!body) return;
+  const reqId = ++procRequestSeq.inbox;
 
   const params = {
     limit: 12,
@@ -1191,6 +1230,7 @@ async function loadApprovalInbox() {
 
   try {
     const res = await api.getPaymentSlaQueue(params);
+    if (reqId !== procRequestSeq.inbox) return;
     const rows = res.data || [];
     if (!rows.length) {
       body.innerHTML = '<tr><td colspan="9" class="empty-state">Немає ордерів, що очікують погодження.</td></tr>';
@@ -1216,6 +1256,7 @@ async function loadApprovalInbox() {
       `;
     }).join('');
   } catch (err) {
+    if (reqId !== procRequestSeq.inbox) return;
     body.innerHTML = `<tr><td colspan="9" class="empty-state">Помилка завантаження inbox: ${escHtml(err.message || 'unknown')}</td></tr>`;
   }
 }
@@ -1234,16 +1275,14 @@ async function quickFinalizeApprovalFromInbox(orderId, approve = true) {
       approve ? `Ордер #${orderId}: approval підтверджено.` : `Ордер #${orderId}: approval відхилено.`,
       'success'
     );
-    await Promise.all([
-      loadApprovalInbox(),
-      loadPaymentOrders(procOrderOffset),
-      loadPaymentSlaQueue(procSlaOffset),
-      loadFraudStats(),
-      loadProcessingWorkload(),
-    ]);
-    if (procModalOrderId === Number(orderId)) {
-      await refreshPaymentOrderCase();
-    }
+    await refreshProcessingViews({
+      inbox: true,
+      orders: true,
+      sla: true,
+      fraud: true,
+      workload: true,
+      caseModal: procModalOrderId === Number(orderId),
+    });
   } catch (err) {
     showToast('Помилка approval inbox: ' + err.message, 'error');
   }
@@ -1252,6 +1291,7 @@ window.quickFinalizeApprovalFromInbox = quickFinalizeApprovalFromInbox;
 
 async function loadPaymentSlaQueue(offset = 0) {
   procSlaOffset = offset;
+  const reqId = ++procRequestSeq.sla;
   const params = { limit: PROC_SLA_LIMIT, offset, open_only: 'true' };
   const overdue = document.getElementById('procSlaOverdueFilter')?.value || '';
   const assigned = document.getElementById('procSlaAssignedFilter')?.value || '';
@@ -1268,6 +1308,7 @@ async function loadPaymentSlaQueue(offset = 0) {
 
   try {
     const res = await api.getPaymentSlaQueue(params);
+    if (reqId !== procRequestSeq.sla) return;
     const rows = res.data || [];
     const total = Number(res.total || 0);
     setSlaSummary(res.summary || {});
@@ -1316,6 +1357,7 @@ async function loadPaymentSlaQueue(offset = 0) {
     }
     renderProcSlaPagination(total, offset, PROC_SLA_LIMIT);
   } catch (err) {
+    if (reqId !== procRequestSeq.sla) return;
     showToast('Помилка SLA queue: ' + err.message, 'error');
   }
 }
@@ -1328,16 +1370,14 @@ async function escalateQueueOrder(orderId) {
       note: 'Manual SLA escalation from processing queue.',
     });
     showToast(`Ордер #${orderId} ескальовано.`, 'success');
-    await Promise.all([
-      loadPaymentSlaQueue(procSlaOffset),
-      loadPaymentOrders(procOrderOffset),
-      loadFraudStats(),
-      loadProcessingWorkload(),
-      loadApprovalInbox(),
-    ]);
-    if (procModalOrderId === Number(orderId)) {
-      await refreshPaymentOrderCase();
-    }
+    await refreshProcessingViews({
+      orders: true,
+      sla: true,
+      fraud: true,
+      workload: true,
+      inbox: true,
+      caseModal: procModalOrderId === Number(orderId),
+    });
   } catch (err) {
     showToast('Помилка ескалації: ' + err.message, 'error');
   }
@@ -1355,13 +1395,13 @@ async function runSlaAutoEscalate() {
     const res = await api.runPaymentSlaAutoEscalate({ dry_run: false, scan_limit: 1200 });
     const count = Number(res?.data?.escalated_count || 0);
     showToast(`Auto-escalate завершено: ${count} ордер(ів).`, 'success');
-    await Promise.all([
-      loadPaymentSlaQueue(procSlaOffset),
-      loadPaymentOrders(procOrderOffset),
-      loadFraudStats(),
-      loadProcessingWorkload(),
-      loadApprovalInbox(),
-    ]);
+    await refreshProcessingViews({
+      orders: true,
+      sla: true,
+      fraud: true,
+      workload: true,
+      inbox: true,
+    });
   } catch (err) {
     showToast('Помилка auto-escalate: ' + err.message, 'error');
   } finally {
@@ -1378,8 +1418,10 @@ function renderPriorityMix(byPriority = {}) {
 }
 
 async function loadProcessingWorkload() {
+  const reqId = ++procRequestSeq.workload;
   try {
     const res = await api.getPaymentWorkload({ open_only: 'true' });
+    if (reqId !== procRequestSeq.workload) return;
     const rows = res.data || [];
     const summary = res.summary || {};
     document.getElementById('procWorkOpenTotal').textContent = `${summary.open_total ?? 0}`;
@@ -1407,6 +1449,7 @@ async function loadProcessingWorkload() {
       `).join('');
     }
   } catch (err) {
+    if (reqId !== procRequestSeq.workload) return;
     showToast('Помилка workload: ' + err.message, 'error');
   }
 }
@@ -1447,14 +1490,14 @@ async function runSlaBulkAction() {
     const failed = Number(res?.data?.failed_count || 0);
     showToast(`Bulk ${action}: success ${done}, failed ${failed}.`, failed ? 'error' : 'success');
     clearSlaSelection();
-    await Promise.all([
-      loadPaymentSlaQueue(procSlaOffset),
-      loadPaymentOrders(procOrderOffset),
-      loadFraudStats(),
-      loadProcessingWorkload(),
-      loadApprovalInbox(),
-    ]);
-    if (procModalOrderId) await refreshPaymentOrderCase();
+    await refreshProcessingViews({
+      orders: true,
+      sla: true,
+      fraud: true,
+      workload: true,
+      inbox: true,
+      caseModal: Boolean(procModalOrderId),
+    });
   } catch (err) {
     showToast('Помилка bulk action: ' + err.message, 'error');
   } finally {
@@ -1593,16 +1636,13 @@ async function assignPaymentOrderToMe(orderId) {
   try {
     await api.assignPaymentOrder(orderId, { admin_user_id: currentAdminUser.id });
     showToast(`Ордер #${orderId} призначено на вас.`, 'success');
-    await Promise.all([
-      loadPaymentOrders(procOrderOffset),
-      loadPaymentSlaQueue(procSlaOffset),
-      loadFraudStats(),
-      loadProcessingWorkload(),
-      loadApprovalInbox(),
-    ]);
-    if (procModalOrderId === Number(orderId)) {
-      await refreshPaymentOrderCase();
-    }
+    await refreshProcessingViews({
+      orders: true,
+      sla: true,
+      workload: true,
+      inbox: true,
+      caseModal: procModalOrderId === Number(orderId),
+    });
   } catch (err) {
     showToast('Помилка assign: ' + err.message, 'error');
   }
@@ -1623,14 +1663,13 @@ async function assignOpenPaymentOrder() {
   try {
     await api.assignPaymentOrder(procModalOrderId, { admin_user_id: assignee, note });
     setProcModalMessage('Ордер призначено.', 'success');
-    await Promise.all([
-      loadPaymentOrders(procOrderOffset),
-      loadPaymentSlaQueue(procSlaOffset),
-      loadFraudStats(),
-      loadProcessingWorkload(),
-      loadApprovalInbox(),
-      refreshPaymentOrderCase(),
-    ]);
+    await refreshProcessingViews({
+      orders: true,
+      sla: true,
+      workload: true,
+      inbox: true,
+      caseModal: true,
+    });
   } catch (err) {
     setProcModalMessage(err.message, 'error');
   }
@@ -1653,14 +1692,14 @@ async function decideOpenPaymentOrder(decision) {
     } else {
       setProcModalMessage(`Рішення ${decision} застосовано.`, 'success');
     }
-    await Promise.all([
-      loadPaymentOrders(procOrderOffset),
-      loadPaymentSlaQueue(procSlaOffset),
-      loadFraudStats(),
-      loadProcessingWorkload(),
-      loadApprovalInbox(),
-      refreshPaymentOrderCase(),
-    ]);
+    await refreshProcessingViews({
+      orders: true,
+      sla: true,
+      fraud: true,
+      workload: true,
+      inbox: true,
+      caseModal: true,
+    });
   } catch (err) {
     setProcModalMessage(err.message, 'error');
   }
@@ -1679,14 +1718,14 @@ async function finalizeOpenPaymentOrderApproval(approve = false) {
       approve ? 'Approval request підтверджено.' : 'Approval request відхилено.',
       'success'
     );
-    await Promise.all([
-      loadPaymentOrders(procOrderOffset),
-      loadPaymentSlaQueue(procSlaOffset),
-      loadFraudStats(),
-      loadProcessingWorkload(),
-      loadApprovalInbox(),
-      refreshPaymentOrderCase(),
-    ]);
+    await refreshProcessingViews({
+      orders: true,
+      sla: true,
+      fraud: true,
+      workload: true,
+      inbox: true,
+      caseModal: true,
+    });
   } catch (err) {
     setProcModalMessage(err.message, 'error');
   }
@@ -1704,13 +1743,7 @@ async function addOpenPaymentOrderNote() {
     await api.addPaymentOrderNote(procModalOrderId, note);
     input.value = '';
     setProcModalMessage('Нотатку додано.', 'success');
-    await Promise.all([
-      loadPaymentOrders(procOrderOffset),
-      loadPaymentSlaQueue(procSlaOffset),
-      loadProcessingWorkload(),
-      loadApprovalInbox(),
-      refreshPaymentOrderCase(),
-    ]);
+    await refreshProcessingViews({ caseModal: true });
   } catch (err) {
     setProcModalMessage(err.message, 'error');
   }
@@ -1730,6 +1763,7 @@ function renderRiskPagination(offset, limit) {
 
 async function loadPaymentRiskEvents(offset = 0) {
   procRiskOffset = offset;
+  const reqId = ++procRequestSeq.risk;
   const params = { limit: PROC_LIMIT, offset };
   const severity = document.getElementById('procRiskSeverityFilter')?.value || '';
   const resolved = document.getElementById('procRiskResolvedFilter')?.value || '';
@@ -1740,6 +1774,7 @@ async function loadPaymentRiskEvents(offset = 0) {
 
   try {
     const res = await api.listPaymentRiskEvents(params);
+    if (reqId !== procRequestSeq.risk) return;
     const rows = res.data || [];
     procLastRiskCount = rows.length;
     const body = document.getElementById('procRiskBody');
@@ -1765,6 +1800,7 @@ async function loadPaymentRiskEvents(offset = 0) {
     }
     renderRiskPagination(offset, PROC_LIMIT);
   } catch (err) {
+    if (reqId !== procRequestSeq.risk) return;
     showToast('Помилка risk events: ' + err.message, 'error');
   }
 }
