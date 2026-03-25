@@ -69,8 +69,10 @@ let txDetailTx = null;
 let procOrderOffset = 0;
 let procRiskOffset = 0;
 let procSlaOffset = 0;
+let procInboxOffset = 0;
 const PROC_LIMIT = 30;
 const PROC_SLA_LIMIT = 20;
+const PROC_INBOX_LIMIT = 12;
 let procLastRiskCount = 0;
 let procModalOrderId = null;
 let procSlaSelectedIds = new Set();
@@ -86,6 +88,9 @@ const PROCESSING_ROLES = new Set(['operator', 'admin', 'platform_admin']);
 const ADMIN_ROLES = new Set(['admin', 'platform_admin']);
 const OPERATOR_BULK_ACTIONS = new Set(['assign', 'escalate', 'note']);
 const FULL_ACCESS_PAGES = ['dashboard', 'users', 'transactions', 'processing', 'payouts', 'audit'];
+const SLA_MINUTES_BY_RISK = { critical: 15, high: 60, medium: 240, low: 720 };
+const SLA_RISK_WEIGHT = { critical: 4, high: 3, medium: 2, low: 1 };
+const SLA_PRIORITY_WEIGHT = { critical: 4, high: 3, medium: 2, normal: 1 };
 
 async function refreshProcessingViews({
   fraud = false,
@@ -97,6 +102,7 @@ async function refreshProcessingViews({
   caseModal = false,
   ordersOffset = procOrderOffset,
   slaOffset = procSlaOffset,
+  inboxOffset = procInboxOffset,
   riskOffset = procRiskOffset,
 } = {}) {
   const jobs = [];
@@ -104,7 +110,7 @@ async function refreshProcessingViews({
   if (orders) jobs.push(loadPaymentOrders(ordersOffset));
   if (sla) jobs.push(loadPaymentSlaQueue(slaOffset));
   if (workload) jobs.push(loadProcessingWorkload());
-  if (inbox) jobs.push(loadApprovalInbox());
+  if (inbox) jobs.push(loadApprovalInbox(inboxOffset));
   if (risk) jobs.push(loadPaymentRiskEvents(riskOffset));
   if (caseModal && procModalOrderId) jobs.push(refreshPaymentOrderCase());
   if (!jobs.length) return;
@@ -574,6 +580,8 @@ async function loadTransactions(offset = 0) {
   const userId = Number(document.getElementById('txUserIdFilter')?.value || 0);
   const minAmountRaw = document.getElementById('txMinAmountFilter')?.value;
   const maxAmountRaw = document.getElementById('txMaxAmountFilter')?.value;
+  const highValueOnly = Boolean(document.getElementById('txHighValueOnly')?.checked);
+  const highValueMinRaw = document.getElementById('txHighValueMin')?.value;
   const sortBy = document.getElementById('txSortFilter')?.value || 'newest';
 
   if (txType) params.tx_type = txType;
@@ -584,6 +592,8 @@ async function loadTransactions(offset = 0) {
   if (userId > 0) params.user_id = userId;
   if (minAmountRaw !== '' && Number(minAmountRaw) >= 0) params.min_amount = Number(minAmountRaw);
   if (maxAmountRaw !== '' && Number(maxAmountRaw) >= 0) params.max_amount = Number(maxAmountRaw);
+  if (highValueOnly) params.high_value_only = 'true';
+  if (highValueMinRaw !== '' && Number(highValueMinRaw) > 0) params.high_value_min = Number(highValueMinRaw);
   params.sort_by = sortBy;
 
   try {
@@ -597,6 +607,7 @@ async function loadTransactions(offset = 0) {
     txCurrentRows = rows;
     document.getElementById('txCount').textContent = `${total} транзакцій`;
     updateTxRegistry(rows, summary);
+    renderTxInsights(summary, rows);
 
     document.getElementById('txBody').innerHTML = rows.map(tx => {
       const isHighValue = highValueThreshold > 0 && Number(tx.amount || 0) >= highValueThreshold;
@@ -663,6 +674,9 @@ function updateTxRegistry(rows, summary = null) {
   let count = rows.length;
   let minAmount = rows.length ? Math.min(...rows.map(tx => Number(tx.amount || 0))) : 0;
   let maxAmount = rows.length ? Math.max(...rows.map(tx => Number(tx.amount || 0))) : 0;
+  let medianAmount = 0;
+  let p90Amount = 0;
+  let highValueCount = 0;
   let uniqueUsers = new Set(rows.map(tx => Number(tx.user_id || 0)).filter(Boolean)).size;
   let topType = rows.length ? rows.reduce((acc, tx) => {
     const key = String(tx.tx_type || 'other');
@@ -674,6 +688,18 @@ function updateTxRegistry(rows, summary = null) {
   } else {
     topType = '—';
   }
+  if (rows.length) {
+    const sorted = rows.map(tx => Number(tx.amount || 0)).sort((a, b) => a - b);
+    const midLow = sorted[(sorted.length - 1) >> 1] || 0;
+    const midHigh = sorted[sorted.length >> 1] || 0;
+    medianAmount = (midLow + midHigh) / 2;
+    const p90Idx = Math.max(0, Math.ceil(sorted.length * 0.9) - 1);
+    p90Amount = sorted[p90Idx] || 0;
+    const localThreshold = maxAmount > 0 ? Math.max(avg * 3, maxAmount * 0.65) : 0;
+    highValueCount = localThreshold > 0
+      ? rows.filter(tx => Number(tx.amount || 0) >= localThreshold).length
+      : 0;
+  }
 
   if (summary && typeof summary === 'object') {
     inTotal = Number(summary.total_in || 0);
@@ -683,6 +709,9 @@ function updateTxRegistry(rows, summary = null) {
     count = Number(summary.count || 0);
     minAmount = Number(summary.min_amount || 0);
     maxAmount = Number(summary.max_amount || 0);
+    medianAmount = Number(summary.median_amount || medianAmount);
+    p90Amount = Number(summary.p90_amount || p90Amount);
+    highValueCount = Number(summary.count_high_value || highValueCount);
     uniqueUsers = Number(summary.unique_users || 0);
     topType = summary.top_tx_type || topType;
   }
@@ -692,6 +721,10 @@ function updateTxRegistry(rows, summary = null) {
   document.getElementById('txRegOut').textContent = fmtMoney(outTotal);
   document.getElementById('txRegNet').textContent = fmtMoney(net);
   document.getElementById('txRegAvg').textContent = fmtMoney(avg);
+  const txRegMedian = document.getElementById('txRegMedian');
+  if (txRegMedian) txRegMedian.textContent = fmtMoney(medianAmount);
+  const txRegP90 = document.getElementById('txRegP90');
+  if (txRegP90) txRegP90.textContent = fmtMoney(p90Amount);
   const txRegMin = document.getElementById('txRegMin');
   if (txRegMin) txRegMin.textContent = fmtMoney(minAmount);
   const txRegMax = document.getElementById('txRegMax');
@@ -700,6 +733,69 @@ function updateTxRegistry(rows, summary = null) {
   if (txRegUsers) txRegUsers.textContent = `${uniqueUsers}`;
   const txRegTopType = document.getElementById('txRegTopType');
   if (txRegTopType) txRegTopType.textContent = txTypeLabel(String(topType || ''));
+  const txRegHighValueCount = document.getElementById('txRegHighValueCount');
+  if (txRegHighValueCount) txRegHighValueCount.textContent = `${Math.max(0, Math.round(highValueCount))}`;
+}
+
+function renderTxInsights(summary = null, rows = []) {
+  const usersWrap = document.getElementById('txTopUsersBody');
+  const typesWrap = document.getElementById('txTopTypesBody');
+  if (!usersWrap || !typesWrap) return;
+
+  let topUsers = Array.isArray(summary?.top_users) ? summary.top_users.slice(0, 5) : [];
+  if (!topUsers.length && rows.length) {
+    const map = new Map();
+    rows.forEach(tx => {
+      const id = Number(tx.user_id || 0);
+      if (!id) return;
+      if (!map.has(id)) {
+        map.set(id, { user_id: id, full_name: tx.full_name || '—', turnover: 0, tx_count: 0 });
+      }
+      const slot = map.get(id);
+      slot.turnover += Number(tx.amount || 0);
+      slot.tx_count += 1;
+    });
+    topUsers = Array.from(map.values())
+      .sort((a, b) => Number(b.turnover || 0) - Number(a.turnover || 0))
+      .slice(0, 5);
+  }
+
+  usersWrap.innerHTML = topUsers.length
+    ? topUsers.map(row => `
+      <div class="tx-insight-row">
+        <div class="tx-insight-main">
+          <div class="tx-insight-name">${escHtml(row.full_name || '—')}</div>
+          <div class="tx-insight-sub">#${row.user_id || '—'} · ${row.tx_count || 0} tx</div>
+        </div>
+        <div class="tx-insight-val">${fmtMoney(row.turnover || 0)}</div>
+      </div>
+    `).join('')
+    : '<div class="mini-chart-empty">Немає даних для топ-користувачів.</div>';
+
+  let byType = Array.isArray(summary?.by_type) ? summary.by_type.slice(0, 6) : [];
+  if (!byType.length && rows.length) {
+    const map = new Map();
+    rows.forEach(tx => {
+      const key = String(tx.tx_type || 'other');
+      if (!map.has(key)) map.set(key, { tx_type: key, cnt: 0, total_amount: 0 });
+      const slot = map.get(key);
+      slot.cnt += 1;
+      slot.total_amount += Number(tx.amount || 0);
+    });
+    byType = Array.from(map.values()).sort((a, b) => Number(b.cnt || 0) - Number(a.cnt || 0)).slice(0, 6);
+  }
+
+  typesWrap.innerHTML = byType.length
+    ? byType.map(row => `
+      <div class="tx-insight-row">
+        <div class="tx-insight-main">
+          <div class="tx-insight-name">${escHtml(txTypeLabel(String(row.tx_type || '')))}</div>
+          <div class="tx-insight-sub">${Number(row.cnt || 0)} tx</div>
+        </div>
+        <div class="tx-insight-val">${fmtMoney(row.total_amount || 0)}</div>
+      </div>
+    `).join('')
+    : '<div class="mini-chart-empty">Немає даних для типів транзакцій.</div>';
 }
 
 function applyTxQuickRange(days) {
@@ -723,6 +819,7 @@ function clearTxFilters() {
     ['txUserIdFilter', ''],
     ['txMinAmountFilter', ''],
     ['txMaxAmountFilter', ''],
+    ['txHighValueMin', ''],
     ['txFromDate', ''],
     ['txToDate', ''],
     ['txSortFilter', 'newest'],
@@ -732,6 +829,8 @@ function clearTxFilters() {
     const el = document.getElementById(id);
     if (el) el.value = value;
   });
+  const txHighValueOnly = document.getElementById('txHighValueOnly');
+  if (txHighValueOnly) txHighValueOnly.checked = false;
   document.querySelectorAll('.tx-period-btn').forEach(btn => btn.classList.remove('active'));
 }
 
@@ -900,6 +999,10 @@ document.getElementById('clearTxBtn').addEventListener('click', () => {
 document.getElementById('exportTxCsvBtn').addEventListener('click', exportTransactionsCsv);
 document.getElementById('txChartDays').addEventListener('change', loadTxChart);
 document.getElementById('txLimitFilter').addEventListener('change', () => loadTransactions(0));
+document.getElementById('txHighValueOnly')?.addEventListener('change', () => loadTransactions(0));
+document.getElementById('txHighValueMin')?.addEventListener('change', () => {
+  if (document.getElementById('txHighValueOnly')?.checked) loadTransactions(0);
+});
 document.querySelectorAll('.tx-period-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     applyTxQuickRange(Number(btn.dataset.days));
@@ -1147,6 +1250,149 @@ function setSlaSummary(summary = {}) {
   document.getElementById('procSlaAvgAge').textContent = fmtMinutesHuman(summary.avg_age_minutes ?? 0);
 }
 
+function normalizeSlaOrderRow(raw = {}) {
+  const row = { ...raw };
+  const nowMs = Date.now();
+  const createdMs = new Date(row.created_at || row.updated_at || nowMs).getTime();
+  const validCreatedMs = Number.isNaN(createdMs) ? nowMs : createdMs;
+  const risk = String(row.risk_level || 'low').toLowerCase();
+  const slaMinutesDefault = SLA_MINUTES_BY_RISK[risk] || SLA_MINUTES_BY_RISK.low;
+  const ageMinutes = row.sla_age_minutes != null
+    ? Number(row.sla_age_minutes)
+    : Math.max(0, Math.floor((nowMs - validCreatedMs) / 60000));
+  const remainingMinutes = row.sla_remaining_minutes != null
+    ? Number(row.sla_remaining_minutes)
+    : (Number(row.sla_minutes || slaMinutesDefault) - ageMinutes);
+  const overdue = row.sla_overdue != null
+    ? Boolean(row.sla_overdue)
+    : remainingMinutes < 0;
+  const dueSoon = row.sla_due_soon != null
+    ? Boolean(row.sla_due_soon)
+    : (!overdue && remainingMinutes <= 30);
+
+  let priority = String(row.sla_priority || '').toLowerCase();
+  if (!priority) {
+    if (overdue && (risk === 'critical' || risk === 'high')) priority = 'critical';
+    else if (overdue) priority = 'high';
+    else if (risk === 'critical') priority = 'high';
+    else if (dueSoon) priority = 'medium';
+    else priority = 'normal';
+  }
+
+  row.sla_minutes = Number(row.sla_minutes || slaMinutesDefault);
+  row.sla_age_minutes = Number.isFinite(ageMinutes) ? ageMinutes : 0;
+  row.sla_remaining_minutes = Number.isFinite(remainingMinutes) ? remainingMinutes : null;
+  row.sla_overdue = overdue;
+  row.sla_due_soon = dueSoon;
+  row.sla_priority = priority;
+  return row;
+}
+
+function compareSlaRows(a, b) {
+  const aa = normalizeSlaOrderRow(a);
+  const bb = normalizeSlaOrderRow(b);
+  const aOverdue = Boolean(aa.sla_overdue);
+  const bOverdue = Boolean(bb.sla_overdue);
+  if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+
+  const aPriority = SLA_PRIORITY_WEIGHT[String(aa.sla_priority || 'normal').toLowerCase()] || 1;
+  const bPriority = SLA_PRIORITY_WEIGHT[String(bb.sla_priority || 'normal').toLowerCase()] || 1;
+  if (aPriority !== bPriority) return bPriority - aPriority;
+
+  const aRisk = SLA_RISK_WEIGHT[String(aa.risk_level || 'low').toLowerCase()] || 1;
+  const bRisk = SLA_RISK_WEIGHT[String(bb.risk_level || 'low').toLowerCase()] || 1;
+  if (aRisk !== bRisk) return bRisk - aRisk;
+
+  const aAge = Number(aa.sla_age_minutes || 0);
+  const bAge = Number(bb.sla_age_minutes || 0);
+  if (aAge !== bAge) return bAge - aAge;
+
+  const aAmount = Number(aa.amount || 0);
+  const bAmount = Number(bb.amount || 0);
+  if (aAmount !== bAmount) return bAmount - aAmount;
+
+  return Number(bb.id || 0) - Number(aa.id || 0);
+}
+
+function buildSlaSummary(rows = []) {
+  const normalized = rows.map(normalizeSlaOrderRow);
+  const total = normalized.length;
+  const overdueTotal = normalized.filter(row => row.sla_overdue).length;
+  const dueSoonTotal = normalized.filter(row => row.sla_due_soon).length;
+  const unassignedTotal = normalized.filter(row => !row.assigned_admin_id).length;
+  const escalatedTotal = normalized.filter(row => String(row.review_state || '').toLowerCase() === 'escalated').length;
+  const awaitingApprovalTotal = normalized.filter(row => String(row.approval_state || '').toLowerCase() === 'requested').length;
+  const avgAgeMinutes = Math.round(
+    normalized.reduce((sum, row) => sum + Number(row.sla_age_minutes || 0), 0) / Math.max(1, total)
+  );
+  const byPriority = { critical: 0, high: 0, medium: 0, normal: 0 };
+  normalized.forEach(row => {
+    const key = String(row.sla_priority || 'normal').toLowerCase();
+    byPriority[key] = (byPriority[key] || 0) + 1;
+  });
+  return {
+    total,
+    overdue_total: overdueTotal,
+    due_soon_total: dueSoonTotal,
+    unassigned_total: unassignedTotal,
+    escalated_total: escalatedTotal,
+    awaiting_approval_total: awaitingApprovalTotal,
+    avg_age_minutes: avgAgeMinutes,
+    by_priority: byPriority,
+  };
+}
+
+function renderSlaQueueRows(rows, total, offset) {
+  const body = document.getElementById('procSlaBody');
+  if (!body) return;
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="12" class="empty-state">SLA ордерів не знайдено.</td></tr>';
+    clearSlaSelection();
+    renderProcSlaPagination(total, offset, PROC_SLA_LIMIT);
+    return;
+  }
+
+  const normalizedRows = rows.map(normalizeSlaOrderRow);
+  body.innerHTML = normalizedRows.map(row => {
+    const assignee = row.assigned_admin_name
+      ? `${escHtml(row.assigned_admin_name)} #${row.assigned_admin_id || ''}`
+      : '—';
+    const review = row.review_state || 'none';
+    const approval = row.approval_state || 'none';
+    const checked = procSlaSelectedIds.has(Number(row.id)) ? 'checked' : '';
+    return `
+      <tr>
+        <td><input type="checkbox" class="proc-sla-check" data-order-id="${row.id}" ${checked} onchange="toggleSlaOrderSelection(${row.id}, this.checked)" /></td>
+        <td>${priorityBadge(row.sla_priority || 'normal')}</td>
+        <td>#${row.id}</td>
+        <td>${escHtml(row.initiator_name || '—')} <span style="color:var(--text-muted)">#${row.initiator_user_id || '—'}</span></td>
+        <td class="${row.status === 'completed' ? 'amount-in' : 'amount-out'}">${fmtMoney(row.amount)}</td>
+        <td>${riskBadge(row.risk_level)}</td>
+        <td>${fmtMinutesHuman(row.sla_age_minutes)}</td>
+        <td>${renderSlaDue(row.sla_remaining_minutes)}</td>
+        <td class="proc-flags" title="${escHtml(assignee)}">${assignee}</td>
+        <td>${reviewBadge(review)}</td>
+        <td>${approvalBadge(approval)}</td>
+        <td>
+          <div class="tx-row-actions">
+            <button class="tx-mini-btn" onclick="openPaymentOrderCase(${row.id})">Case</button>
+            <button class="tx-mini-btn" onclick="assignPaymentOrderToMe(${row.id})">Take</button>
+            <button class="tx-mini-btn" onclick="escalateQueueOrder(${row.id})" ${review === 'escalated' ? 'disabled' : ''}>Escalate</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  const pageIds = normalizedRows.map(row => Number(row.id)).filter(Boolean);
+  const allSelectedOnPage = pageIds.length > 0 && pageIds.every(id => procSlaSelectedIds.has(id));
+  const selectAll = document.getElementById('procSlaSelectAll');
+  const selectAllHead = document.getElementById('procSlaSelectAllHead');
+  if (selectAll) selectAll.checked = allSelectedOnPage;
+  if (selectAllHead) selectAllHead.checked = allSelectedOnPage;
+  updateSlaSelectedCount();
+  renderProcSlaPagination(total, offset, PROC_SLA_LIMIT);
+}
+
 function updateSlaSelectedCount() {
   const badgeEl = document.getElementById('procSlaSelectedCount');
   if (badgeEl) badgeEl.textContent = `${procSlaSelectedIds.size} selected`;
@@ -1254,16 +1500,50 @@ function renderApprovalInboxActions(row) {
   `;
 }
 
-async function loadApprovalInbox() {
+function renderProcApprovalPagination(total, offset, limit) {
+  const bar = document.getElementById('procApprovalPagination');
+  if (!bar) return;
+  const pages = Math.ceil(total / limit);
+  const cur = Math.floor(offset / limit);
+  if (pages <= 1) { bar.innerHTML = ''; return; }
+
+  let html = `<button class="page-btn" ${cur === 0 ? 'disabled' : ''} onclick="loadApprovalInbox(${(cur - 1) * limit})">‹</button>`;
+  const start = Math.max(0, cur - 2);
+  const end = Math.min(pages - 1, cur + 2);
+  if (start > 0) {
+    html += `<button class="page-btn" onclick="loadApprovalInbox(0)">1</button>`;
+    if (start > 1) html += `<span style="color:var(--text-muted);padding:0 4px">…</span>`;
+  }
+  for (let i = start; i <= end; i++) {
+    html += `<button class="page-btn ${i === cur ? 'active' : ''}" onclick="loadApprovalInbox(${i * limit})">${i + 1}</button>`;
+  }
+  if (end < pages - 1) {
+    if (end < pages - 2) html += `<span style="color:var(--text-muted);padding:0 4px">…</span>`;
+    html += `<button class="page-btn" onclick="loadApprovalInbox(${(pages - 1) * limit})">${pages}</button>`;
+  }
+  html += `<button class="page-btn" ${cur >= pages - 1 ? 'disabled' : ''} onclick="loadApprovalInbox(${(cur + 1) * limit})">›</button>`;
+  bar.innerHTML = html;
+}
+
+async function loadApprovalInbox(offset = 0) {
+  procInboxOffset = offset;
   const body = document.getElementById('procApprovalInboxBody');
   if (!body) return;
   const reqId = ++procRequestSeq.inbox;
 
   const params = {
-    limit: 12,
-    offset: 0,
+    limit: PROC_INBOX_LIMIT,
+    offset,
     open_only: 'true',
   };
+  const action = document.getElementById('procInboxActionFilter')?.value || '';
+  const priority = document.getElementById('procInboxPriorityFilter')?.value || '';
+  const overdue = document.getElementById('procInboxOverdueFilter')?.value || '';
+  const search = document.getElementById('procInboxSearchFilter')?.value.trim() || '';
+  if (action) params.approval_action = action;
+  if (priority) params.priority = priority;
+  if (overdue) params.overdue = overdue;
+  if (search) params.search = search;
   if (isOperatorRole() && currentAdminUser?.id) {
     params.assigned_admin_id = currentAdminUser.id;
   }
@@ -1272,8 +1552,10 @@ async function loadApprovalInbox() {
     const res = await api.getPaymentApprovalInbox(params);
     if (reqId !== procRequestSeq.inbox) return;
     const rows = res.data || [];
+    const total = Number(res.total || 0);
     if (!rows.length) {
       body.innerHTML = '<tr><td colspan="9" class="empty-state">Немає ордерів, що очікують погодження.</td></tr>';
+      renderProcApprovalPagination(total, offset, PROC_INBOX_LIMIT);
       return;
     }
 
@@ -1295,11 +1577,14 @@ async function loadApprovalInbox() {
         </tr>
       `;
     }).join('');
+    renderProcApprovalPagination(total, offset, PROC_INBOX_LIMIT);
   } catch (err) {
     if (reqId !== procRequestSeq.inbox) return;
     body.innerHTML = `<tr><td colspan="9" class="empty-state">Помилка завантаження inbox: ${escHtml(err.message || 'unknown')}</td></tr>`;
+    renderProcApprovalPagination(0, 0, PROC_INBOX_LIMIT);
   }
 }
+window.loadApprovalInbox = loadApprovalInbox;
 
 async function quickFinalizeApprovalFromInbox(orderId, approve = true) {
   if (!isAdminRole()) {
@@ -1336,9 +1621,13 @@ async function loadPaymentSlaQueue(offset = 0) {
   const overdue = document.getElementById('procSlaOverdueFilter')?.value || '';
   const assigned = document.getElementById('procSlaAssignedFilter')?.value || '';
   const risk = document.getElementById('procSlaRiskFilter')?.value || '';
+  const priority = document.getElementById('procSlaPriorityFilter')?.value || '';
+  const approval = document.getElementById('procSlaApprovalFilter')?.value || '';
   const search = document.getElementById('procSlaSearchFilter')?.value.trim() || '';
   if (overdue) params.overdue = overdue;
   if (risk) params.risk_level = risk;
+  if (priority) params.priority = priority;
+  if (approval) params.approval_state = approval;
   if (search) params.search = search;
   if (assigned === 'me' && currentAdminUser?.id) {
     params.assigned_admin_id = currentAdminUser.id;
@@ -1351,57 +1640,54 @@ async function loadPaymentSlaQueue(offset = 0) {
     if (reqId !== procRequestSeq.sla) return;
     const rows = res.data || [];
     const total = Number(res.total || 0);
-    setSlaSummary(res.summary || {});
-    const body = document.getElementById('procSlaBody');
-    if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="12" class="empty-state">SLA ордерів не знайдено.</td></tr>';
-      clearSlaSelection();
-    } else {
-      body.innerHTML = rows.map(row => {
-        const assignee = row.assigned_admin_name
-          ? `${escHtml(row.assigned_admin_name)} #${row.assigned_admin_id || ''}`
-          : '—';
-        const review = row.review_state || 'none';
-        const approval = row.approval_state || 'none';
-        const checked = procSlaSelectedIds.has(Number(row.id)) ? 'checked' : '';
-        return `
-          <tr>
-            <td><input type="checkbox" class="proc-sla-check" data-order-id="${row.id}" ${checked} onchange="toggleSlaOrderSelection(${row.id}, this.checked)" /></td>
-            <td>${priorityBadge(row.sla_priority || 'normal')}</td>
-            <td>#${row.id}</td>
-            <td>${escHtml(row.initiator_name || '—')} <span style="color:var(--text-muted)">#${row.initiator_user_id || '—'}</span></td>
-            <td class="${row.status === 'completed' ? 'amount-in' : 'amount-out'}">${fmtMoney(row.amount)}</td>
-            <td>${riskBadge(row.risk_level)}</td>
-            <td>${fmtMinutesHuman(row.sla_age_minutes)}</td>
-            <td>${renderSlaDue(row.sla_remaining_minutes)}</td>
-            <td class="proc-flags" title="${escHtml(assignee)}">${assignee}</td>
-            <td>${reviewBadge(review)}</td>
-            <td>${approvalBadge(approval)}</td>
-            <td>
-              <div class="tx-row-actions">
-                <button class="tx-mini-btn" onclick="openPaymentOrderCase(${row.id})">Case</button>
-                <button class="tx-mini-btn" onclick="assignPaymentOrderToMe(${row.id})">Take</button>
-                <button class="tx-mini-btn" onclick="escalateQueueOrder(${row.id})" ${review === 'escalated' ? 'disabled' : ''}>Escalate</button>
-              </div>
-            </td>
-          </tr>
-        `;
-      }).join('');
-      const pageIds = rows.map(row => Number(row.id)).filter(Boolean);
-      const allSelectedOnPage = pageIds.length > 0 && pageIds.every(id => procSlaSelectedIds.has(id));
-      const selectAll = document.getElementById('procSlaSelectAll');
-      const selectAllHead = document.getElementById('procSlaSelectAllHead');
-      if (selectAll) selectAll.checked = allSelectedOnPage;
-      if (selectAllHead) selectAllHead.checked = allSelectedOnPage;
-      updateSlaSelectedCount();
-    }
-    renderProcSlaPagination(total, offset, PROC_SLA_LIMIT);
+    setSlaSummary(res.summary || buildSlaSummary(rows));
+    renderSlaQueueRows(rows, total, offset);
   } catch (err) {
     if (reqId !== procRequestSeq.sla) return;
+    const fallbackOk = await loadPaymentSlaQueueFallback(offset, params);
+    if (fallbackOk) {
+      showToast(`SLA queue API недоступний, показано fallback: ${err.message}`, 'error');
+      return;
+    }
     showToast('Помилка SLA queue: ' + err.message, 'error');
   }
 }
 window.loadPaymentSlaQueue = loadPaymentSlaQueue;
+
+async function loadPaymentSlaQueueFallback(offset = 0, baseFilters = {}) {
+  try {
+    const fallbackParams = {
+      limit: 800,
+      offset: 0,
+      open_only: 'true',
+    };
+    if (baseFilters.status) fallbackParams.status = baseFilters.status;
+    if (baseFilters.risk_level) fallbackParams.risk_level = baseFilters.risk_level;
+    if (baseFilters.review_state) fallbackParams.review_state = baseFilters.review_state;
+    if (baseFilters.approval_state) fallbackParams.approval_state = baseFilters.approval_state;
+    if (baseFilters.user_id) fallbackParams.user_id = baseFilters.user_id;
+    if (baseFilters.assigned_admin_id) fallbackParams.assigned_admin_id = baseFilters.assigned_admin_id;
+    if (baseFilters.assigned_mode) fallbackParams.assigned_mode = baseFilters.assigned_mode;
+    if (baseFilters.search) fallbackParams.search = baseFilters.search;
+
+    const res = await api.listPaymentOrders(fallbackParams);
+    let rows = Array.isArray(res?.data) ? res.data.map(normalizeSlaOrderRow) : [];
+    if (baseFilters.overdue === 'true') rows = rows.filter(row => Boolean(row.sla_overdue));
+    if (baseFilters.overdue === 'false') rows = rows.filter(row => !Boolean(row.sla_overdue));
+    if (baseFilters.priority) {
+      const pr = String(baseFilters.priority || '').toLowerCase();
+      rows = rows.filter(row => String(row.sla_priority || '').toLowerCase() === pr);
+    }
+    rows.sort(compareSlaRows);
+    const total = rows.length;
+    const page = rows.slice(offset, offset + PROC_SLA_LIMIT);
+    setSlaSummary(buildSlaSummary(rows));
+    renderSlaQueueRows(page, total, offset);
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
 
 async function escalateQueueOrder(orderId) {
   try {
@@ -1893,11 +2179,22 @@ document.getElementById('procSlaClearBtn')?.addEventListener('click', () => {
   document.getElementById('procSlaOverdueFilter').value = '';
   document.getElementById('procSlaAssignedFilter').value = '';
   document.getElementById('procSlaRiskFilter').value = '';
+  document.getElementById('procSlaPriorityFilter').value = '';
+  document.getElementById('procSlaApprovalFilter').value = '';
   document.getElementById('procSlaSearchFilter').value = '';
   clearSlaSelection();
   loadPaymentSlaQueue(0);
 });
 document.getElementById('procSlaSearchFilter')?.addEventListener('input', debounce(() => loadPaymentSlaQueue(0), 380));
+document.getElementById('procInboxApplyBtn')?.addEventListener('click', () => loadApprovalInbox(0));
+document.getElementById('procInboxClearBtn')?.addEventListener('click', () => {
+  document.getElementById('procInboxActionFilter').value = '';
+  document.getElementById('procInboxPriorityFilter').value = '';
+  document.getElementById('procInboxOverdueFilter').value = '';
+  document.getElementById('procInboxSearchFilter').value = '';
+  loadApprovalInbox(0);
+});
+document.getElementById('procInboxSearchFilter')?.addEventListener('input', debounce(() => loadApprovalInbox(0), 380));
 document.getElementById('procSlaAutoEscalateBtn')?.addEventListener('click', runSlaAutoEscalate);
 document.getElementById('procSlaBulkRunBtn')?.addEventListener('click', runSlaBulkAction);
 document.getElementById('procSlaSelectAll')?.addEventListener('change', (e) => {

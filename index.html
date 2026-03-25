@@ -262,6 +262,11 @@
         <input type="number" id="txUserIdFilter" class="filter-input" placeholder="User ID" min="1" />
         <input type="number" id="txMinAmountFilter" class="filter-input" placeholder="Мін. сума" min="0" step="0.01" />
         <input type="number" id="txMaxAmountFilter" class="filter-input" placeholder="Макс. сума" min="0" step="0.01" />
+        <label class="proc-check tx-inline-check">
+          <input type="checkbox" id="txHighValueOnly" />
+          Лише high-value
+        </label>
+        <input type="number" id="txHighValueMin" class="filter-input" placeholder="High-value від (₴)" min="0" step="0.01" />
         <input type="date" id="txFromDate" class="filter-input" title="Від дати" />
         <input type="date" id="txToDate" class="filter-input" title="До дати" />
         <select id="txSortFilter" class="filter-select" title="Сортування">
@@ -310,6 +315,14 @@
           <div class="registry-value" id="txRegAvg">—</div>
         </div>
         <div class="registry-card">
+          <div class="registry-label">Median</div>
+          <div class="registry-value" id="txRegMedian">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">P90</div>
+          <div class="registry-value" id="txRegP90">—</div>
+        </div>
+        <div class="registry-card">
           <div class="registry-label">Мін чек</div>
           <div class="registry-value" id="txRegMin">—</div>
         </div>
@@ -325,6 +338,10 @@
           <div class="registry-label">Топ тип</div>
           <div class="registry-value" id="txRegTopType">—</div>
         </div>
+        <div class="registry-card">
+          <div class="registry-label">High-value шт.</div>
+          <div class="registry-value" id="txRegHighValueCount">—</div>
+        </div>
       </div>
 
       <div class="tx-chart-card">
@@ -339,6 +356,21 @@
         </div>
         <div id="txChartWrap" class="tx-chart-wrap">
           <div class="mini-chart-empty">Завантаження графіка…</div>
+        </div>
+      </div>
+
+      <div class="tx-insights-grid">
+        <div class="tx-insight-card">
+          <div class="tx-insight-title">Топ користувачі за оборотом</div>
+          <div id="txTopUsersBody" class="tx-insight-list">
+            <div class="mini-chart-empty">Немає даних.</div>
+          </div>
+        </div>
+        <div class="tx-insight-card">
+          <div class="tx-insight-title">Розподіл за типами</div>
+          <div id="txTopTypesBody" class="tx-insight-list">
+            <div class="mini-chart-empty">Немає даних.</div>
+          </div>
         </div>
       </div>
 
@@ -425,6 +457,20 @@
           <option value="high">high</option>
           <option value="critical">critical</option>
         </select>
+        <select id="procSlaPriorityFilter" class="filter-select">
+          <option value="">Всі пріоритети</option>
+          <option value="critical">critical</option>
+          <option value="high">high</option>
+          <option value="medium">medium</option>
+          <option value="normal">normal</option>
+        </select>
+        <select id="procSlaApprovalFilter" class="filter-select">
+          <option value="">Всі approval-state</option>
+          <option value="none">none</option>
+          <option value="requested">requested</option>
+          <option value="approved">approved</option>
+          <option value="declined">declined</option>
+        </select>
         <input type="text" id="procSlaSearchFilter" class="filter-input" placeholder="Пошук: ПІБ/рахунок/опис" />
         <button class="btn-secondary" id="procSlaApplyBtn">Застосувати</button>
         <button class="btn-secondary" id="procSlaClearBtn">Скинути</button>
@@ -485,6 +531,28 @@
       </div>
 
       <div class="section-title">Approval inbox</div>
+      <div class="filters-bar wrap">
+        <select id="procInboxActionFilter" class="filter-select">
+          <option value="">Всі дії</option>
+          <option value="approve">approve</option>
+          <option value="reject">reject</option>
+        </select>
+        <select id="procInboxPriorityFilter" class="filter-select">
+          <option value="">Всі пріоритети</option>
+          <option value="critical">critical</option>
+          <option value="high">high</option>
+          <option value="medium">medium</option>
+          <option value="normal">normal</option>
+        </select>
+        <select id="procInboxOverdueFilter" class="filter-select">
+          <option value="">Всі</option>
+          <option value="true">Лише overdue</option>
+          <option value="false">Лише не overdue</option>
+        </select>
+        <input type="text" id="procInboxSearchFilter" class="filter-input" placeholder="Пошук: ПІБ/рахунок/опис" />
+        <button class="btn-secondary" id="procInboxApplyBtn">Застосувати</button>
+        <button class="btn-secondary" id="procInboxClearBtn">Скинути</button>
+      </div>
       <div class="table-wrap">
         <table class="data-table">
           <thead><tr>
@@ -495,6 +563,7 @@
           </tbody>
         </table>
       </div>
+      <div class="pagination-bar" id="procApprovalPagination"></div>
 
       <div class="table-wrap">
         <table class="data-table">

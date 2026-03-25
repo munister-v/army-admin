@@ -420,10 +420,18 @@ body {
 #txUserIdFilter { grid-column: span 1; }
 #txMinAmountFilter,
 #txMaxAmountFilter,
+#txHighValueMin,
 #txFromDate,
 #txToDate,
 #txSortFilter,
 #txLimitFilter { grid-column: span 2; }
+
+.tx-inline-check {
+  grid-column: span 2;
+  align-self: center;
+  min-height: 38px;
+  padding: 0 2px;
+}
 
 .tx-quick-range {
   grid-column: span 4;
@@ -513,6 +521,70 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.tx-insights-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.tx-insight-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.tx-insight-title {
+  font-size: .84rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.tx-insight-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tx-insight-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+}
+
+.tx-insight-main {
+  min-width: 0;
+}
+
+.tx-insight-name {
+  color: var(--text);
+  font-size: .82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tx-insight-sub {
+  color: var(--text-muted);
+  font-size: .74rem;
+  margin-top: 2px;
+}
+
+.tx-insight-val {
+  color: var(--gold);
+  font-size: .82rem;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .mini-chart-empty {
@@ -1163,13 +1235,16 @@ body {
   #txUserIdFilter,
   #txMinAmountFilter,
   #txMaxAmountFilter,
+  #txHighValueMin,
   #txFromDate,
   #txToDate,
   #txSortFilter,
   #txLimitFilter { grid-column: span 3; }
+  .tx-inline-check { grid-column: span 3; }
   .tx-quick-range,
   .tx-filter-actions { grid-column: span 6; justify-content: flex-start; }
   .tx-registry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tx-insights-grid { grid-template-columns: 1fr; }
   .proc-grid { grid-template-columns: 1fr; }
 }
 
