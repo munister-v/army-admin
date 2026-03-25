@@ -389,6 +389,66 @@
         </div>
       </div>
 
+      <div class="section-title">SLA Черга</div>
+      <div class="filters-bar wrap">
+        <select id="procSlaOverdueFilter" class="filter-select">
+          <option value="">Всі</option>
+          <option value="true">Лише прострочені</option>
+          <option value="false">Лише не прострочені</option>
+        </select>
+        <select id="procSlaAssignedFilter" class="filter-select">
+          <option value="">Всі assignee</option>
+          <option value="me">Мої кейси</option>
+          <option value="unassigned">Без відповідального</option>
+        </select>
+        <select id="procSlaRiskFilter" class="filter-select">
+          <option value="">Всі ризики</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+          <option value="critical">critical</option>
+        </select>
+        <input type="text" id="procSlaSearchFilter" class="filter-input" placeholder="Пошук: ПІБ/рахунок/опис" />
+        <button class="btn-secondary" id="procSlaApplyBtn">Застосувати</button>
+        <button class="btn-secondary" id="procSlaClearBtn">Скинути</button>
+        <button class="btn-secondary" id="procSlaAutoEscalateBtn">Auto-escalate overdue</button>
+      </div>
+      <div class="tx-registry-grid proc-sla-summary-grid">
+        <div class="registry-card">
+          <div class="registry-label">SLA total</div>
+          <div class="registry-value" id="procSlaTotal">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Overdue</div>
+          <div class="registry-value red" id="procSlaOverdue">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Due soon</div>
+          <div class="registry-value" id="procSlaDueSoon">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Unassigned</div>
+          <div class="registry-value" id="procSlaUnassigned">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Escalated</div>
+          <div class="registry-value" id="procSlaEscalated">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Avg age</div>
+          <div class="registry-value" id="procSlaAvgAge">—</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr>
+            <th>Priority</th><th>ID</th><th>User</th><th>Сума</th><th>Risk</th><th>Age</th><th>Due</th><th>Assignee</th><th>Review</th><th>Дії</th>
+          </tr></thead>
+          <tbody id="procSlaBody"></tbody>
+        </table>
+      </div>
+      <div class="pagination-bar" id="procSlaPagination"></div>
+
       <div class="section-title">Критичні ордери</div>
       <div class="table-wrap">
         <table class="data-table">

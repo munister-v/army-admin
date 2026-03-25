@@ -960,11 +960,28 @@ body {
 .badge-risk-medium { background: rgba(250,204,21,.14); color: #facc15; }
 .badge-risk-high { background: rgba(251,146,60,.14); color: #fb923c; }
 .badge-risk-critical { background: rgba(248,113,113,.14); color: #f87171; }
+.badge-priority-critical { background: rgba(248,113,113,.2); color: #fecaca; }
+.badge-priority-high { background: rgba(251,146,60,.18); color: #fed7aa; }
+.badge-priority-medium { background: rgba(250,204,21,.2); color: #fef08a; }
+.badge-priority-normal { background: rgba(148,163,184,.14); color: #cbd5e1; }
 .badge-review-none { background: rgba(160,165,178,.16); color: #bec5d3; }
 .badge-review-pending { background: rgba(126,165,255,.16); color: #b6ccff; }
 .badge-review-approved { background: rgba(62,207,142,.14); color: var(--green); }
 .badge-review-rejected { background: rgba(248,113,113,.14); color: var(--red); }
 .badge-review-escalated { background: rgba(250,204,21,.16); color: #facc15; }
+
+.proc-sla-summary-grid {
+  margin-bottom: 12px;
+}
+
+.sla-due-overdue {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.sla-due-ok {
+  color: var(--text-muted);
+}
 
 .proc-flags {
   max-width: 220px;

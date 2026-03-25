@@ -61,7 +61,9 @@ let txCurrentRows = [];
 let txDetailTx = null;
 let procOrderOffset = 0;
 let procRiskOffset = 0;
+let procSlaOffset = 0;
 const PROC_LIMIT = 30;
+const PROC_SLA_LIMIT = 20;
 let procLastRiskCount = 0;
 let procModalOrderId = null;
 
@@ -776,6 +778,22 @@ function reviewBadge(state) {
   return badge(`review-${safe}`, safe);
 }
 
+function priorityBadge(level) {
+  const safe = (level || 'normal').toLowerCase();
+  return badge(`priority-${safe}`, safe);
+}
+
+function fmtMinutesHuman(totalMinutes) {
+  if (totalMinutes == null || Number.isNaN(Number(totalMinutes))) return '—';
+  const value = Math.abs(Number(totalMinutes));
+  const d = Math.floor(value / 1440);
+  const h = Math.floor((value % 1440) / 60);
+  const m = Math.floor(value % 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 function parseRiskFlags(raw) {
   if (Array.isArray(raw)) return raw;
   if (!raw) return [];
@@ -944,6 +962,148 @@ async function loadPaymentOrders(offset = 0) {
 }
 window.loadPaymentOrders = loadPaymentOrders;
 
+function setSlaSummary(summary = {}) {
+  document.getElementById('procSlaTotal').textContent = `${summary.total ?? 0}`;
+  document.getElementById('procSlaOverdue').textContent = `${summary.overdue_total ?? 0}`;
+  document.getElementById('procSlaDueSoon').textContent = `${summary.due_soon_total ?? 0}`;
+  document.getElementById('procSlaUnassigned').textContent = `${summary.unassigned_total ?? 0}`;
+  document.getElementById('procSlaEscalated').textContent = `${summary.escalated_total ?? 0}`;
+  document.getElementById('procSlaAvgAge').textContent = fmtMinutesHuman(summary.avg_age_minutes ?? 0);
+}
+
+function renderProcSlaPagination(total, offset, limit) {
+  const bar = document.getElementById('procSlaPagination');
+  if (!bar) return;
+  const pages = Math.ceil(total / limit);
+  const cur = Math.floor(offset / limit);
+  if (pages <= 1) { bar.innerHTML = ''; return; }
+
+  let html = `<button class="page-btn" ${cur === 0 ? 'disabled' : ''} onclick="loadPaymentSlaQueue(${(cur - 1) * limit})">‹</button>`;
+  const start = Math.max(0, cur - 2);
+  const end = Math.min(pages - 1, cur + 2);
+  if (start > 0) {
+    html += `<button class="page-btn" onclick="loadPaymentSlaQueue(0)">1</button>`;
+    if (start > 1) html += `<span style="color:var(--text-muted);padding:0 4px">…</span>`;
+  }
+  for (let i = start; i <= end; i++) {
+    html += `<button class="page-btn ${i === cur ? 'active' : ''}" onclick="loadPaymentSlaQueue(${i * limit})">${i + 1}</button>`;
+  }
+  if (end < pages - 1) {
+    if (end < pages - 2) html += `<span style="color:var(--text-muted);padding:0 4px">…</span>`;
+    html += `<button class="page-btn" onclick="loadPaymentSlaQueue(${(pages - 1) * limit})">${pages}</button>`;
+  }
+  html += `<button class="page-btn" ${cur >= pages - 1 ? 'disabled' : ''} onclick="loadPaymentSlaQueue(${(cur + 1) * limit})">›</button>`;
+  bar.innerHTML = html;
+}
+
+function renderSlaDue(remainingMinutes) {
+  if (remainingMinutes == null || Number.isNaN(Number(remainingMinutes))) return '—';
+  const rem = Number(remainingMinutes);
+  if (rem < 0) {
+    return `<span class="sla-due-overdue">${fmtMinutesHuman(rem)} overdue</span>`;
+  }
+  return `<span class="sla-due-ok">${fmtMinutesHuman(rem)}</span>`;
+}
+
+async function loadPaymentSlaQueue(offset = 0) {
+  procSlaOffset = offset;
+  const params = { limit: PROC_SLA_LIMIT, offset, open_only: 'true' };
+  const overdue = document.getElementById('procSlaOverdueFilter')?.value || '';
+  const assigned = document.getElementById('procSlaAssignedFilter')?.value || '';
+  const risk = document.getElementById('procSlaRiskFilter')?.value || '';
+  const search = document.getElementById('procSlaSearchFilter')?.value.trim() || '';
+  if (overdue) params.overdue = overdue;
+  if (risk) params.risk_level = risk;
+  if (search) params.search = search;
+  if (assigned === 'me' && currentAdminUser?.id) {
+    params.assigned_admin_id = currentAdminUser.id;
+  } else if (assigned === 'unassigned') {
+    params.assigned_mode = 'unassigned';
+  }
+
+  try {
+    const res = await api.getPaymentSlaQueue(params);
+    const rows = res.data || [];
+    const total = Number(res.total || 0);
+    setSlaSummary(res.summary || {});
+    const body = document.getElementById('procSlaBody');
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="10" class="empty-state">SLA ордерів не знайдено.</td></tr>';
+    } else {
+      body.innerHTML = rows.map(row => {
+        const assignee = row.assigned_admin_name
+          ? `${escHtml(row.assigned_admin_name)} #${row.assigned_admin_id || ''}`
+          : '—';
+        const review = row.review_state || 'none';
+        return `
+          <tr>
+            <td>${priorityBadge(row.sla_priority || 'normal')}</td>
+            <td>#${row.id}</td>
+            <td>${escHtml(row.initiator_name || '—')} <span style="color:var(--text-muted)">#${row.initiator_user_id || '—'}</span></td>
+            <td class="${row.status === 'completed' ? 'amount-in' : 'amount-out'}">${fmtMoney(row.amount)}</td>
+            <td>${riskBadge(row.risk_level)}</td>
+            <td>${fmtMinutesHuman(row.sla_age_minutes)}</td>
+            <td>${renderSlaDue(row.sla_remaining_minutes)}</td>
+            <td class="proc-flags" title="${escHtml(assignee)}">${assignee}</td>
+            <td>${reviewBadge(review)}</td>
+            <td>
+              <div class="tx-row-actions">
+                <button class="tx-mini-btn" onclick="openPaymentOrderCase(${row.id})">Case</button>
+                <button class="tx-mini-btn" onclick="assignPaymentOrderToMe(${row.id})">Take</button>
+                <button class="tx-mini-btn" onclick="escalateQueueOrder(${row.id})" ${review === 'escalated' ? 'disabled' : ''}>Escalate</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+    renderProcSlaPagination(total, offset, PROC_SLA_LIMIT);
+  } catch (err) {
+    showToast('Помилка SLA queue: ' + err.message, 'error');
+  }
+}
+window.loadPaymentSlaQueue = loadPaymentSlaQueue;
+
+async function escalateQueueOrder(orderId) {
+  try {
+    await api.decidePaymentOrder(orderId, {
+      decision: 'escalate',
+      note: 'Manual SLA escalation from processing queue.',
+    });
+    showToast(`Ордер #${orderId} ескальовано.`, 'success');
+    await Promise.all([
+      loadPaymentSlaQueue(procSlaOffset),
+      loadPaymentOrders(procOrderOffset),
+      loadFraudStats(),
+    ]);
+    if (procModalOrderId === Number(orderId)) {
+      await refreshPaymentOrderCase();
+    }
+  } catch (err) {
+    showToast('Помилка ескалації: ' + err.message, 'error');
+  }
+}
+window.escalateQueueOrder = escalateQueueOrder;
+
+async function runSlaAutoEscalate() {
+  const btn = document.getElementById('procSlaAutoEscalateBtn');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await api.runPaymentSlaAutoEscalate({ dry_run: false, scan_limit: 1200 });
+    const count = Number(res?.data?.escalated_count || 0);
+    showToast(`Auto-escalate завершено: ${count} ордер(ів).`, 'success');
+    await Promise.all([
+      loadPaymentSlaQueue(procSlaOffset),
+      loadPaymentOrders(procOrderOffset),
+      loadFraudStats(),
+    ]);
+  } catch (err) {
+    showToast('Помилка auto-escalate: ' + err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 function setProcModalMessage(msg, type = 'success') {
   const el = document.getElementById('procModalMsg');
   if (!el) return;
@@ -960,6 +1120,8 @@ function clearProcModalMessage() {
 
 function formatEventType(eventType) {
   const map = {
+    created: 'Створено',
+    status_changed: 'Зміна статусу',
     assigned: 'Призначено',
     note: 'Нотатка',
     decision_approved: 'Рішення: approve',
@@ -1169,6 +1331,7 @@ async function loadProcessing() {
   await Promise.all([
     loadFraudStats(),
     loadPaymentOrders(0),
+    loadPaymentSlaQueue(0),
     loadPaymentRiskEvents(0),
   ]);
 }
@@ -1192,6 +1355,16 @@ document.getElementById('procRiskClearBtn')?.addEventListener('click', () => {
   loadPaymentRiskEvents(0);
 });
 document.getElementById('procOrderSearchFilter')?.addEventListener('input', debounce(() => loadPaymentOrders(0), 380));
+document.getElementById('procSlaApplyBtn')?.addEventListener('click', () => loadPaymentSlaQueue(0));
+document.getElementById('procSlaClearBtn')?.addEventListener('click', () => {
+  document.getElementById('procSlaOverdueFilter').value = '';
+  document.getElementById('procSlaAssignedFilter').value = '';
+  document.getElementById('procSlaRiskFilter').value = '';
+  document.getElementById('procSlaSearchFilter').value = '';
+  loadPaymentSlaQueue(0);
+});
+document.getElementById('procSlaSearchFilter')?.addEventListener('input', debounce(() => loadPaymentSlaQueue(0), 380));
+document.getElementById('procSlaAutoEscalateBtn')?.addEventListener('click', runSlaAutoEscalate);
 
 document.getElementById('procModalClose')?.addEventListener('click', closePaymentOrderCase);
 document.getElementById('procOrderModal')?.addEventListener('click', (e) => {

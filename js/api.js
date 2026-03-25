@@ -94,6 +94,13 @@ class AdminAPI {
   getFraudStats() {
     return this.get('/api/admin/payments/fraud-stats');
   }
+  getPaymentSlaQueue(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get(`/api/admin/payments/sla-queue${q ? '?' + q : ''}`);
+  }
+  runPaymentSlaAutoEscalate(data = {}) {
+    return this.post('/api/admin/payments/sla-auto-escalate', data);
+  }
   createPayout(data)   { return this.post('/api/admin/payouts', data); }
 
   listAuditLogs(params = {}) {
