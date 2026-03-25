@@ -458,6 +458,10 @@
           <div class="registry-value" id="procSlaEscalated">—</div>
         </div>
         <div class="registry-card">
+          <div class="registry-label">Awaiting approval</div>
+          <div class="registry-value" id="procSlaAwaitingApproval">—</div>
+        </div>
+        <div class="registry-card">
           <div class="registry-label">Avg age</div>
           <div class="registry-value" id="procSlaAvgAge">—</div>
         </div>
@@ -465,7 +469,7 @@
       <div class="table-wrap">
         <table class="data-table">
           <thead><tr>
-            <th><input type="checkbox" id="procSlaSelectAllHead" /></th><th>Priority</th><th>ID</th><th>User</th><th>Сума</th><th>Risk</th><th>Age</th><th>Due</th><th>Assignee</th><th>Review</th><th>Дії</th>
+            <th><input type="checkbox" id="procSlaSelectAllHead" /></th><th>Priority</th><th>ID</th><th>User</th><th>Сума</th><th>Risk</th><th>Age</th><th>Due</th><th>Assignee</th><th>Review</th><th>Approval</th><th>Дії</th>
           </tr></thead>
           <tbody id="procSlaBody"></tbody>
         </table>
@@ -494,11 +498,15 @@
           <div class="registry-label">Critical risk</div>
           <div class="registry-value red" id="procWorkCriticalTotal">—</div>
         </div>
+        <div class="registry-card">
+          <div class="registry-label">Awaiting approval</div>
+          <div class="registry-value" id="procWorkAwaitingApprovalTotal">—</div>
+        </div>
       </div>
       <div class="table-wrap">
         <table class="data-table">
           <thead><tr>
-            <th>Operator</th><th>Assigned</th><th>Overdue</th><th>Critical</th><th>Escalated</th><th>Avg age</th><th>Priority mix</th>
+            <th>Operator</th><th>Assigned</th><th>Overdue</th><th>Critical</th><th>Escalated</th><th>Awaiting approval</th><th>Avg age</th><th>Priority mix</th>
           </tr></thead>
           <tbody id="procWorkloadBody"></tbody>
         </table>
@@ -715,6 +723,9 @@
       <div class="modal-row"><span>Status</span><span id="procModalStatus">—</span></div>
       <div class="modal-row"><span>Risk</span><span id="procModalRisk">—</span></div>
       <div class="modal-row"><span>Review</span><span id="procModalReview">—</span></div>
+      <div class="modal-row"><span>Approval</span><span id="procModalApprovalState">—</span></div>
+      <div class="modal-row"><span>Requested by</span><span id="procModalApprovalRequestedBy">—</span></div>
+      <div class="modal-row"><span>Decided by</span><span id="procModalApprovalDecidedBy">—</span></div>
       <div class="modal-row"><span>Assignee</span><span id="procModalAssignee">—</span></div>
       <div class="modal-row"><span>Decision note</span><span id="procModalDecisionNote">—</span></div>
     </div>
@@ -731,6 +742,7 @@
       <div class="proc-modal-actions">
         <button class="btn-secondary" id="procModalApproveBtn">Approve</button>
         <button class="btn-secondary" id="procModalRejectBtn">Reject</button>
+        <button class="btn-secondary" id="procModalApprovalDenyBtn">Deny approval</button>
         <button class="btn-secondary" id="procModalEscalateBtn">Escalate</button>
         <button class="btn-secondary" id="procModalClearBtn">Clear</button>
       </div>

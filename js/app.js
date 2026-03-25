@@ -779,6 +779,11 @@ function reviewBadge(state) {
   return badge(`review-${safe}`, safe);
 }
 
+function approvalBadge(state) {
+  const safe = (state || 'none').toLowerCase();
+  return badge(`approval-${safe}`, safe);
+}
+
 function priorityBadge(level) {
   const safe = (level || 'normal').toLowerCase();
   return badge(`priority-${safe}`, safe);
@@ -969,6 +974,7 @@ function setSlaSummary(summary = {}) {
   document.getElementById('procSlaDueSoon').textContent = `${summary.due_soon_total ?? 0}`;
   document.getElementById('procSlaUnassigned').textContent = `${summary.unassigned_total ?? 0}`;
   document.getElementById('procSlaEscalated').textContent = `${summary.escalated_total ?? 0}`;
+  document.getElementById('procSlaAwaitingApproval').textContent = `${summary.awaiting_approval_total ?? 0}`;
   document.getElementById('procSlaAvgAge').textContent = fmtMinutesHuman(summary.avg_age_minutes ?? 0);
 }
 
@@ -992,6 +998,12 @@ function toggleSlaOrderSelection(orderId, checked) {
   if (!id) return;
   if (checked) procSlaSelectedIds.add(id);
   else procSlaSelectedIds.delete(id);
+  const pageChecks = Array.from(document.querySelectorAll('.proc-sla-check'));
+  const allChecked = pageChecks.length > 0 && pageChecks.every(cb => cb.checked);
+  const selectAll = document.getElementById('procSlaSelectAll');
+  const selectAllHead = document.getElementById('procSlaSelectAllHead');
+  if (selectAll) selectAll.checked = allChecked;
+  if (selectAllHead) selectAllHead.checked = allChecked;
   updateSlaSelectedCount();
 }
 window.toggleSlaOrderSelection = toggleSlaOrderSelection;
@@ -1068,7 +1080,7 @@ async function loadPaymentSlaQueue(offset = 0) {
     setSlaSummary(res.summary || {});
     const body = document.getElementById('procSlaBody');
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="11" class="empty-state">SLA ордерів не знайдено.</td></tr>';
+      body.innerHTML = '<tr><td colspan="12" class="empty-state">SLA ордерів не знайдено.</td></tr>';
       clearSlaSelection();
     } else {
       body.innerHTML = rows.map(row => {
@@ -1076,6 +1088,7 @@ async function loadPaymentSlaQueue(offset = 0) {
           ? `${escHtml(row.assigned_admin_name)} #${row.assigned_admin_id || ''}`
           : '—';
         const review = row.review_state || 'none';
+        const approval = row.approval_state || 'none';
         const checked = procSlaSelectedIds.has(Number(row.id)) ? 'checked' : '';
         return `
           <tr>
@@ -1089,6 +1102,7 @@ async function loadPaymentSlaQueue(offset = 0) {
             <td>${renderSlaDue(row.sla_remaining_minutes)}</td>
             <td class="proc-flags" title="${escHtml(assignee)}">${assignee}</td>
             <td>${reviewBadge(review)}</td>
+            <td>${approvalBadge(approval)}</td>
             <td>
               <div class="tx-row-actions">
                 <button class="tx-mini-btn" onclick="openPaymentOrderCase(${row.id})">Case</button>
@@ -1174,10 +1188,11 @@ async function loadProcessingWorkload() {
     document.getElementById('procWorkUnassignedTotal').textContent = `${summary.unassigned_total ?? 0}`;
     document.getElementById('procWorkOverdueTotal').textContent = `${summary.overdue_total ?? 0}`;
     document.getElementById('procWorkCriticalTotal').textContent = `${summary.critical_total ?? 0}`;
+    document.getElementById('procWorkAwaitingApprovalTotal').textContent = `${summary.awaiting_approval_total ?? 0}`;
 
     const body = document.getElementById('procWorkloadBody');
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="7" class="empty-state">Даних по workload немає.</td></tr>';
+      body.innerHTML = '<tr><td colspan="8" class="empty-state">Даних по workload немає.</td></tr>';
     } else {
       body.innerHTML = rows.map(row => `
         <tr>
@@ -1186,6 +1201,7 @@ async function loadProcessingWorkload() {
           <td class="amount-out">${row.overdue || 0}</td>
           <td>${row.critical || 0}</td>
           <td>${row.escalated || 0}</td>
+          <td>${row.awaiting_approval || 0}</td>
           <td>${fmtMinutesHuman(row.avg_age_minutes || 0)}</td>
           <td>${renderPriorityMix(row.by_priority || {})}</td>
         </tr>
@@ -1289,7 +1305,7 @@ function renderProcTimeline(items = []) {
 
 function renderPaymentOrderCase(order, timeline = []) {
   document.getElementById('procModalTitle').textContent = `Платіжний ордер #${order.id}`;
-  document.getElementById('procModalBadges').innerHTML = `${statusBadge(order.status)} ${riskBadge(order.risk_level)} ${reviewBadge(order.review_state)}`;
+  document.getElementById('procModalBadges').innerHTML = `${statusBadge(order.status)} ${riskBadge(order.risk_level)} ${reviewBadge(order.review_state)} ${approvalBadge(order.approval_state)}`;
   document.getElementById('procModalId').textContent = `#${order.id}`;
   document.getElementById('procModalUser').textContent = `${order.initiator_name || '—'}${order.initiator_user_id ? ` #${order.initiator_user_id}` : ''}`;
   document.getElementById('procModalRoute').textContent = `${order.sender_number || '—'} -> ${order.recipient_number || '—'}`;
@@ -1297,11 +1313,20 @@ function renderPaymentOrderCase(order, timeline = []) {
   document.getElementById('procModalStatus').innerHTML = statusBadge(order.status);
   document.getElementById('procModalRisk').innerHTML = riskBadge(order.risk_level);
   document.getElementById('procModalReview').innerHTML = reviewBadge(order.review_state);
+  document.getElementById('procModalApprovalState').innerHTML = approvalBadge(order.approval_state);
+  document.getElementById('procModalApprovalRequestedBy').textContent = order.approval_requested_by_name
+    ? `${order.approval_requested_by_name} #${order.approval_requested_by || ''}`
+    : '—';
+  document.getElementById('procModalApprovalDecidedBy').textContent = order.approval_decided_by_name
+    ? `${order.approval_decided_by_name} #${order.approval_decided_by || ''}`
+    : '—';
   document.getElementById('procModalAssignee').textContent = order.assigned_admin_name
     ? `${order.assigned_admin_name} #${order.assigned_admin_id}`
     : '—';
   document.getElementById('procModalDecisionNote').textContent = order.decision_note || '—';
   document.getElementById('procModalAssignUserId').value = order.assigned_admin_id || currentAdminUser?.id || '';
+  const denyBtn = document.getElementById('procModalApprovalDenyBtn');
+  if (denyBtn) denyBtn.disabled = String(order.approval_state || '').toLowerCase() !== 'requested';
   renderProcTimeline(timeline);
 }
 
@@ -1383,8 +1408,36 @@ async function decideOpenPaymentOrder(decision) {
   if (!procModalOrderId) return;
   const note = (document.getElementById('procModalDecisionInput').value || '').trim();
   try {
-    await api.decidePaymentOrder(procModalOrderId, { decision, note });
-    setProcModalMessage(`Рішення ${decision} застосовано.`, 'success');
+    const res = await api.decidePaymentOrder(procModalOrderId, { decision, note });
+    const mode = res?.meta?.mode || 'direct';
+    if (mode === 'approval_requested') {
+      setProcModalMessage(`Approval request (${decision}) створено. Потрібен другий адміністратор.`, 'success');
+    } else if (mode === 'approval_finalized') {
+      setProcModalMessage(`Approval finalized: ${decision}.`, 'success');
+    } else {
+      setProcModalMessage(`Рішення ${decision} застосовано.`, 'success');
+    }
+    await Promise.all([
+      loadPaymentOrders(procOrderOffset),
+      loadPaymentSlaQueue(procSlaOffset),
+      loadFraudStats(),
+      loadProcessingWorkload(),
+      refreshPaymentOrderCase(),
+    ]);
+  } catch (err) {
+    setProcModalMessage(err.message, 'error');
+  }
+}
+
+async function finalizeOpenPaymentOrderApproval(approve = false) {
+  if (!procModalOrderId) return;
+  const note = (document.getElementById('procModalDecisionInput').value || '').trim();
+  try {
+    await api.finalizePaymentOrderApproval(procModalOrderId, { approve: Boolean(approve), note });
+    setProcModalMessage(
+      approve ? 'Approval request підтверджено.' : 'Approval request відхилено.',
+      'success'
+    );
     await Promise.all([
       loadPaymentOrders(procOrderOffset),
       loadPaymentSlaQueue(procSlaOffset),
@@ -1540,6 +1593,7 @@ document.getElementById('procOrderModal')?.addEventListener('click', (e) => {
 document.getElementById('procModalAssignBtn')?.addEventListener('click', assignOpenPaymentOrder);
 document.getElementById('procModalApproveBtn')?.addEventListener('click', () => decideOpenPaymentOrder('approve'));
 document.getElementById('procModalRejectBtn')?.addEventListener('click', () => decideOpenPaymentOrder('reject'));
+document.getElementById('procModalApprovalDenyBtn')?.addEventListener('click', () => finalizeOpenPaymentOrderApproval(false));
 document.getElementById('procModalEscalateBtn')?.addEventListener('click', () => decideOpenPaymentOrder('escalate'));
 document.getElementById('procModalClearBtn')?.addEventListener('click', () => decideOpenPaymentOrder('clear'));
 document.getElementById('procModalAddNoteBtn')?.addEventListener('click', addOpenPaymentOrderNote);

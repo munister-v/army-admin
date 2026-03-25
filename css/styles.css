@@ -968,6 +968,10 @@ body {
 .badge-priority-high { background: rgba(251,146,60,.18); color: #fed7aa; }
 .badge-priority-medium { background: rgba(250,204,21,.2); color: #fef08a; }
 .badge-priority-normal { background: rgba(148,163,184,.14); color: #cbd5e1; }
+.badge-approval-none { background: rgba(148,163,184,.14); color: #cbd5e1; }
+.badge-approval-requested { background: rgba(250,204,21,.18); color: #fef08a; }
+.badge-approval-approved { background: rgba(62,207,142,.14); color: var(--green); }
+.badge-approval-declined { background: rgba(248,113,113,.14); color: var(--red); }
 .badge-review-none { background: rgba(160,165,178,.16); color: #bec5d3; }
 .badge-review-pending { background: rgba(126,165,255,.16); color: #b6ccff; }
 .badge-review-approved { background: rgba(62,207,142,.14); color: var(--green); }

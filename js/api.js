@@ -78,6 +78,12 @@ class AdminAPI {
   decidePaymentOrder(orderId, data = {}) {
     return this.patch(`/api/admin/payments/orders/${orderId}/decision`, data);
   }
+  requestPaymentOrderApproval(orderId, data = {}) {
+    return this.post(`/api/admin/payments/orders/${orderId}/approval/request`, data);
+  }
+  finalizePaymentOrderApproval(orderId, data = {}) {
+    return this.post(`/api/admin/payments/orders/${orderId}/approval/finalize`, data);
+  }
   addPaymentOrderNote(orderId, note) {
     return this.post(`/api/admin/payments/orders/${orderId}/notes`, { note });
   }
