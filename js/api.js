@@ -44,6 +44,9 @@ class AdminAPI {
 
   // ── Admin ──
   stats()   { return this.get('/api/admin/stats'); }
+  chartStats(days = 30) {
+    return this.get(`/api/admin/stats/charts?days=${days}`);
+  }
 
   listUsers(params = {}) {
     const q = new URLSearchParams(params).toString();
@@ -58,6 +61,9 @@ class AdminAPI {
   listTransactions(params = {}) {
     const q = new URLSearchParams(params).toString();
     return this.get(`/api/admin/transactions${q ? '?' + q : ''}`);
+  }
+  adjustUserBalance(userId, data) {
+    return this.post(`/api/admin/users/${userId}/balance-adjust`, data);
   }
   createPayout(data)   { return this.post('/api/admin/payouts', data); }
 
