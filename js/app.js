@@ -424,6 +424,8 @@ async function loadUsers() {
         <td style="font-size:.82rem">${escHtml(u.phone || '—')}</td>
         <td style="color:var(--text-muted);font-size:.82rem">${escHtml(u.email || '—')}</td>
         <td>${roleBadge(u.role)}</td>
+        <td>${kycBadge(u.kyc_status || 'pending')}</td>
+        <td>${u.aml_flag ? '<span class="badge badge-blocked" style="font-size:.72rem">⚑</span>' : '<span style="color:var(--text-muted);font-size:.78rem">—</span>'}</td>
         <td style="color:var(--text-muted);font-size:.78rem">${fmt(u.created_at)}</td>
         <td><button class="btn-table" onclick="openUserModal(${u.id})">Деталі →</button></td>
       </tr>
@@ -448,6 +450,7 @@ function switchModalTab(tab) {
     c.classList.toggle('hidden', !show);
   });
   if (tab === 'txs' && modalUserId) loadModalTxs(modalUserId);
+  if (tab === 'compliance' && modalUserId) loadModalCompliance(modalUserId);
 }
 
 async function openUserModal(userId) {
@@ -518,6 +521,58 @@ async function loadModalTxs(userId) {
     loading.textContent = 'Помилка завантаження.';
   }
 }
+
+async function loadModalCompliance(userId) {
+  const loading = document.getElementById('mCmpLoading');
+  const content = document.getElementById('mCmpContent');
+  const editSec = document.getElementById('mCmpEditSection');
+  loading.style.display = 'block';
+  content.style.display = 'none';
+  editSec.style.display = 'none';
+  document.getElementById('mCmpMsg').classList.add('hidden');
+  try {
+    const res = await api.complianceGetUser(userId);
+    const cp = res.data?.compliance || {};
+    document.getElementById('mCmpKycStatus').innerHTML = kycBadge(cp.kyc_status);
+    document.getElementById('mCmpAmlFlag').innerHTML   = cp.aml_flag
+      ? '<span class="badge badge-blocked" style="font-size:.75rem">⚑ AML</span>'
+      : '<span style="color:var(--text-muted)">—</span>';
+    document.getElementById('mCmpRiskLevel').innerHTML  = riskBadge(cp.risk_level);
+    document.getElementById('mCmpNotes').textContent    = cp.notes || '—';
+    document.getElementById('mCmpUpdatedAt').textContent = cp.updated_at ? fmt(cp.updated_at) : '—';
+    document.getElementById('mCmpUpdatedBy').textContent = cp.updated_by_name || (cp.updated_by ? `#${cp.updated_by}` : '—');
+    // pre-fill edit form
+    document.getElementById('mCmpEditKyc').value  = cp.kyc_status || 'pending';
+    document.getElementById('mCmpEditRisk').value = cp.risk_level || 'low';
+    document.getElementById('mCmpEditAml').checked = !!cp.aml_flag;
+    document.getElementById('mCmpEditNotes').value = cp.notes || '';
+    loading.style.display = 'none';
+    content.style.display = 'block';
+    editSec.style.display = 'block';
+  } catch (err) {
+    loading.textContent = 'Помилка: ' + err.message;
+  }
+}
+
+document.getElementById('mCmpSaveBtn')?.addEventListener('click', async () => {
+  if (!modalUserId) return;
+  const msg = document.getElementById('mCmpMsg');
+  msg.classList.add('hidden');
+  try {
+    await api.complianceUpdateUser(modalUserId, {
+      kyc_status: document.getElementById('mCmpEditKyc').value,
+      risk_level: document.getElementById('mCmpEditRisk').value,
+      aml_flag:   document.getElementById('mCmpEditAml').checked ? 1 : 0,
+      notes:      document.getElementById('mCmpEditNotes').value.trim() || null,
+    });
+    showToast('Комплаєнс оновлено!');
+    loadModalCompliance(modalUserId);
+  } catch (err) {
+    msg.textContent = err.message;
+    msg.className = 'form-msg error';
+    msg.classList.remove('hidden');
+  }
+});
 
 function closeUserModal() {
   document.getElementById('userModal').classList.add('hidden');
@@ -2350,6 +2405,17 @@ function renderCardsPagination(total, offset, limit) {
   });
 }
 
+async function loadCardsStats() {
+  try {
+    const res = await api.cardsStats();
+    const d = res.data || {};
+    document.getElementById('cardStatTotal').textContent   = d.total   ?? '—';
+    document.getElementById('cardStatActive').textContent  = d.active  ?? '—';
+    document.getElementById('cardStatBlocked').textContent = d.blocked ?? '—';
+    document.getElementById('cardStatClosed').textContent  = d.closed  ?? '—';
+  } catch { /* silent */ }
+}
+
 async function loadAdminCards(offset = 0) {
   cardsOffset = offset;
   const params = {};
@@ -2362,22 +2428,13 @@ async function loadAdminCards(offset = 0) {
   params.limit  = CARDS_LIMIT;
   params.offset = offset;
 
+  if (offset === 0) loadCardsStats();
+
   document.getElementById('cardsBody').innerHTML = '<tr><td colspan="10" class="empty-state">Завантаження…</td></tr>';
   try {
     const res = await api.listAdminCards(params);
     const data  = res.data || [];
     const total = res.total || 0;
-
-    // stats (count from current result if no filter, else just show filtered)
-    if (!search && !status && !userId && offset === 0) {
-      document.getElementById('cardStatTotal').textContent   = total;
-      const active  = data.filter(c => c.status === 'active').length;
-      const blocked = data.filter(c => c.status === 'blocked').length;
-      const closed  = data.filter(c => c.status === 'closed').length;
-      document.getElementById('cardStatActive').textContent  = active;
-      document.getElementById('cardStatBlocked').textContent = blocked;
-      document.getElementById('cardStatClosed').textContent  = closed;
-    }
 
     if (!data.length) {
       document.getElementById('cardsBody').innerHTML = '<tr><td colspan="10" class="empty-state">Карток не знайдено.</td></tr>';
@@ -2412,13 +2469,6 @@ async function loadAdminCards(offset = 0) {
         </td>
       </tr>
     `).join('');
-
-    // load real stats from a fresh unfiltered request if we just applied a filter
-    if (search || status || userId) {
-      api.listAdminCards({ limit: 1 }).then(r => {
-        document.getElementById('cardStatTotal').textContent = r.total || '—';
-      }).catch(() => {});
-    }
 
     renderCardsPagination(total, offset, CARDS_LIMIT);
   } catch (err) {

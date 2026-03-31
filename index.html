@@ -159,7 +159,7 @@
       <div class="table-wrap">
         <table class="data-table" id="usersTable">
           <thead><tr>
-            <th>ID</th><th>ПІБ</th><th>Телефон</th><th>Email</th><th>Роль</th><th>Статус</th><th>Зареєстровано</th><th>Дії</th>
+            <th>ID</th><th>ПІБ</th><th>Телефон</th><th>Email</th><th>Роль</th><th>KYC</th><th>AML</th><th>Зареєстровано</th><th>Дії</th>
           </tr></thead>
           <tbody id="usersBody"></tbody>
         </table>
@@ -185,6 +185,7 @@
           <button class="modal-tab active" data-tab="info">Інфо</button>
           <button class="modal-tab" data-tab="actions">Дії</button>
           <button class="modal-tab" data-tab="txs">Транзакції</button>
+          <button class="modal-tab" data-tab="compliance">Комплаєнс</button>
         </div>
         <!-- TAB: INFO -->
         <div class="modal-tab-content active" id="tab-info">
@@ -227,6 +228,56 @@
             <div id="payoutMsg" class="form-msg hidden"></div>
           </div>
         </div>
+        <!-- TAB: COMPLIANCE -->
+        <div class="modal-tab-content hidden" id="tab-compliance">
+          <div class="modal-section">
+            <div id="mCmpLoading" style="padding:20px;text-align:center;color:var(--text-muted);font-size:.85rem">Завантаження…</div>
+            <div id="mCmpContent" style="display:none">
+              <div class="modal-row"><span>KYC статус</span><span id="mCmpKycStatus">—</span></div>
+              <div class="modal-row"><span>AML прапор</span><span id="mCmpAmlFlag">—</span></div>
+              <div class="modal-row"><span>Рівень ризику</span><span id="mCmpRiskLevel">—</span></div>
+              <div class="modal-row"><span>Нотатка</span><span id="mCmpNotes" style="max-width:220px;word-break:break-word">—</span></div>
+              <div class="modal-row"><span>Оновлено</span><span id="mCmpUpdatedAt">—</span></div>
+              <div class="modal-row"><span>Ким</span><span id="mCmpUpdatedBy">—</span></div>
+            </div>
+          </div>
+          <div class="modal-section" id="mCmpEditSection" style="display:none">
+            <div class="section-title" style="margin:0 0 12px">Редагувати</div>
+            <div class="field-row">
+              <div class="field-group">
+                <label>KYC статус</label>
+                <select id="mCmpEditKyc" class="filter-select">
+                  <option value="not_started">Не розпочато</option>
+                  <option value="pending">Очікує</option>
+                  <option value="in_review">На перевірці</option>
+                  <option value="verified">Верифіковано</option>
+                  <option value="rejected">Відхилено</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label>Ризик</label>
+                <select id="mCmpEditRisk" class="filter-select">
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                  <option value="critical">critical</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-group" style="margin-top:8px">
+              <label class="proc-check" style="gap:8px;cursor:pointer"><input type="checkbox" id="mCmpEditAml" /> AML прапор</label>
+            </div>
+            <div class="field-group" style="margin-top:8px">
+              <label>Нотатка</label>
+              <textarea id="mCmpEditNotes" class="filter-input" style="resize:vertical;min-height:60px" placeholder="Коментар…"></textarea>
+            </div>
+            <div id="mCmpMsg" class="form-msg hidden"></div>
+            <div class="inline-form" style="margin-top:10px">
+              <button class="btn-primary" id="mCmpSaveBtn">Зберегти</button>
+            </div>
+          </div>
+        </div>
+
         <!-- TAB: TRANSACTIONS -->
         <div class="modal-tab-content hidden" id="tab-txs">
           <div class="modal-section" style="padding-bottom:0">

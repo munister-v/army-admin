@@ -126,6 +126,7 @@ class AdminAPI {
   }
 
   // ── Admin Cards ──
+  cardsStats() { return this.get('/api/admin/cards/stats'); }
   listAdminCards(params = {}) {
     const q = new URLSearchParams(params).toString();
     return this.get(`/api/admin/cards${q ? '?' + q : ''}`);
