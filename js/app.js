@@ -76,6 +76,12 @@ const PROC_INBOX_LIMIT = 12;
 let procLastRiskCount = 0;
 let procModalOrderId = null;
 let procSlaSelectedIds = new Set();
+let cardsOffset = 0;
+const CARDS_LIMIT = 50;
+let cmpOffset = 0;
+const CMP_LIMIT = 50;
+let cmpModalUserId = null;
+let issueCardSelectedUserId = null;
 const procRequestSeq = {
   fraud: 0,
   orders: 0,
@@ -87,7 +93,7 @@ const procRequestSeq = {
 const PROCESSING_ROLES = new Set(['operator', 'admin', 'platform_admin']);
 const ADMIN_ROLES = new Set(['admin', 'platform_admin']);
 const OPERATOR_BULK_ACTIONS = new Set(['assign', 'escalate', 'note']);
-const FULL_ACCESS_PAGES = ['dashboard', 'users', 'transactions', 'processing', 'payouts', 'audit'];
+const FULL_ACCESS_PAGES = ['dashboard', 'users', 'transactions', 'processing', 'payouts', 'cards', 'compliance', 'audit'];
 const SLA_MINUTES_BY_RISK = { critical: 15, high: 60, medium: 240, low: 720 };
 const SLA_RISK_WEIGHT = { critical: 4, high: 3, medium: 2, low: 1 };
 const SLA_PRIORITY_WEIGHT = { critical: 4, high: 3, medium: 2, normal: 1 };
@@ -219,6 +225,8 @@ function navigate(page) {
     transactions: 'Транзакції',
     processing: 'Процесинг',
     payouts: 'Виплати',
+    cards: 'Картки',
+    compliance: 'Комплаєнс',
     audit: 'Аудит',
   };
   document.getElementById('topbarTitle').textContent = titles[page] || page;
@@ -232,6 +240,8 @@ function loadPage(page) {
     case 'users':        loadUsers(); break;
     case 'transactions': loadTransactions(); loadTxChart(); break;
     case 'processing':   loadProcessing(); break;
+    case 'cards':        loadAdminCards(); break;
+    case 'compliance':   loadCompliance(); break;
     case 'audit':        loadAuditLogs(); break;
   }
 }
@@ -2306,6 +2316,382 @@ async function loadAuditLogs() {
 }
 
 document.getElementById('refreshAudit').addEventListener('click', loadAuditLogs);
+
+/* ══════════════════════════════════════════════
+   CARDS PAGE
+══════════════════════════════════════════════ */
+function cardStatusBadge(s) {
+  if (s === 'active')  return badge('active', 'Активна');
+  if (s === 'blocked') return badge('blocked', 'Заблокована');
+  if (s === 'closed')  return badge('closed', 'Закрита');
+  return badge('', s || '—');
+}
+
+function cardTypeLbl(t) {
+  return t === 'physical' ? 'Фізична' : 'Віртуальна';
+}
+
+function renderCardsPagination(total, offset, limit) {
+  const bar = document.getElementById('cardsPagination');
+  if (!bar) return;
+  const pages = Math.ceil(total / limit);
+  const cur   = Math.floor(offset / limit);
+  if (pages <= 1) { bar.innerHTML = ''; return; }
+  let html = '';
+  for (let i = 0; i < pages; i++) {
+    html += `<button class="page-btn${i === cur ? ' active' : ''}" data-offset="${i * limit}">${i + 1}</button>`;
+  }
+  bar.innerHTML = html;
+  bar.querySelectorAll('.page-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      cardsOffset = +btn.dataset.offset;
+      loadAdminCards(cardsOffset);
+    });
+  });
+}
+
+async function loadAdminCards(offset = 0) {
+  cardsOffset = offset;
+  const params = {};
+  const search = (document.getElementById('cardSearch')?.value || '').trim();
+  const status = document.getElementById('cardStatusFilter')?.value || '';
+  const userId = (document.getElementById('cardUserIdFilter')?.value || '').trim();
+  if (search) params.search = search;
+  if (status) params.status = status;
+  if (userId) params.user_id = userId;
+  params.limit  = CARDS_LIMIT;
+  params.offset = offset;
+
+  document.getElementById('cardsBody').innerHTML = '<tr><td colspan="10" class="empty-state">Завантаження…</td></tr>';
+  try {
+    const res = await api.listAdminCards(params);
+    const data  = res.data || [];
+    const total = res.total || 0;
+
+    // stats (count from current result if no filter, else just show filtered)
+    if (!search && !status && !userId && offset === 0) {
+      document.getElementById('cardStatTotal').textContent   = total;
+      const active  = data.filter(c => c.status === 'active').length;
+      const blocked = data.filter(c => c.status === 'blocked').length;
+      const closed  = data.filter(c => c.status === 'closed').length;
+      document.getElementById('cardStatActive').textContent  = active;
+      document.getElementById('cardStatBlocked').textContent = blocked;
+      document.getElementById('cardStatClosed').textContent  = closed;
+    }
+
+    if (!data.length) {
+      document.getElementById('cardsBody').innerHTML = '<tr><td colspan="10" class="empty-state">Карток не знайдено.</td></tr>';
+      renderCardsPagination(0, 0, CARDS_LIMIT);
+      return;
+    }
+
+    document.getElementById('cardsBody').innerHTML = data.map(c => `
+      <tr>
+        <td style="color:var(--text-muted);font-size:.78rem">${c.id}</td>
+        <td><code style="font-size:.8rem">${escHtml(c.card_number_masked || '****')}</code></td>
+        <td style="font-size:.82rem">${cardTypeLbl(c.card_type)}</td>
+        <td style="font-size:.82rem">${escHtml(c.design || 'gold')}</td>
+        <td>
+          <div style="font-weight:600;font-size:.82rem">${escHtml(c.full_name || '—')}</div>
+          <div style="font-size:.75rem;color:var(--text-muted)">${escHtml(c.phone || '')} · ID ${c.user_id}</div>
+        </td>
+        <td style="font-size:.78rem;color:var(--text-muted)">${escHtml(c.account_number || '—')}</td>
+        <td>${cardStatusBadge(c.status)}</td>
+        <td style="font-size:.78rem;color:var(--text-muted);white-space:nowrap">${fmt(c.issued_at)}</td>
+        <td style="font-size:.78rem;color:var(--text-muted);white-space:nowrap">${c.expires_at ? c.expires_at.slice(0,7) : '—'}</td>
+        <td class="actions-cell">
+          ${c.status !== 'blocked' && c.status !== 'closed'
+            ? `<button class="btn-secondary card-action-btn" data-id="${c.id}" data-action="block" style="font-size:.75rem;padding:4px 8px">Блок</button>`
+            : ''}
+          ${c.status === 'blocked'
+            ? `<button class="btn-secondary card-action-btn" data-id="${c.id}" data-action="unblock" style="font-size:.75rem;padding:4px 8px">Розблок</button>`
+            : ''}
+          ${c.status !== 'closed'
+            ? `<button class="btn-secondary card-action-btn" data-id="${c.id}" data-action="close" style="font-size:.75rem;padding:4px 8px;color:var(--danger)">Закрити</button>`
+            : ''}
+        </td>
+      </tr>
+    `).join('');
+
+    // load real stats from a fresh unfiltered request if we just applied a filter
+    if (search || status || userId) {
+      api.listAdminCards({ limit: 1 }).then(r => {
+        document.getElementById('cardStatTotal').textContent = r.total || '—';
+      }).catch(() => {});
+    }
+
+    renderCardsPagination(total, offset, CARDS_LIMIT);
+  } catch (err) {
+    document.getElementById('cardsBody').innerHTML = `<tr><td colspan="10" class="empty-state">${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+document.getElementById('applyCardFilterBtn')?.addEventListener('click', () => loadAdminCards(0));
+document.getElementById('clearCardFilterBtn')?.addEventListener('click', () => {
+  document.getElementById('cardSearch').value = '';
+  document.getElementById('cardStatusFilter').value = '';
+  document.getElementById('cardUserIdFilter').value = '';
+  loadAdminCards(0);
+});
+
+document.getElementById('cardsBody')?.addEventListener('click', async e => {
+  const btn = e.target.closest('.card-action-btn');
+  if (!btn) return;
+  const { id, action } = btn.dataset;
+  const labels = { block: 'Заблокувати', unblock: 'Розблокувати', close: 'Закрити' };
+  if (!confirm(`${labels[action] || action} картку ID ${id}?`)) return;
+  try {
+    if (action === 'block')   await api.blockAdminCard(id);
+    if (action === 'unblock') await api.unblockAdminCard(id);
+    if (action === 'close')   await api.closeAdminCard(id);
+    showToast('Готово!');
+    loadAdminCards(cardsOffset);
+  } catch (err) {
+    showToast('Помилка: ' + err.message, 'error');
+  }
+});
+
+/* Issue card modal */
+let _issueCardDropdownUsers = [];
+const issueCardUserSearch = document.getElementById('issueCardUserSearch');
+const issueCardDropdown   = document.getElementById('issueCardUserDropdown');
+
+function setIssueCardUser(user) {
+  issueCardSelectedUserId = user.id;
+  document.getElementById('issueCardSelectedName').textContent = `${user.full_name} · ${user.phone}`;
+  document.getElementById('issueCardSelectedUser').classList.remove('hidden');
+  issueCardUserSearch.value = '';
+  issueCardDropdown.classList.add('hidden');
+  document.getElementById('issueCardSubmitBtn').disabled = false;
+}
+
+issueCardUserSearch?.addEventListener('input', debounce(async () => {
+  const q = issueCardUserSearch.value.trim();
+  if (q.length < 2) { issueCardDropdown.classList.add('hidden'); return; }
+  try {
+    const res = await api.listUsers({ search: q });
+    _issueCardDropdownUsers = (res.data || []).slice(0, 8);
+    if (!_issueCardDropdownUsers.length) { issueCardDropdown.classList.add('hidden'); return; }
+    issueCardDropdown.innerHTML = _issueCardDropdownUsers.map(u =>
+      `<div class="user-dropdown-item" data-uid="${u.id}">${escHtml(u.full_name)} <span style="opacity:.6">${escHtml(u.phone)}</span></div>`
+    ).join('');
+    issueCardDropdown.classList.remove('hidden');
+  } catch { issueCardDropdown.classList.add('hidden'); }
+}, 280));
+
+issueCardDropdown?.addEventListener('click', e => {
+  const item = e.target.closest('.user-dropdown-item');
+  if (!item) return;
+  const user = _issueCardDropdownUsers.find(u => u.id == item.dataset.uid);
+  if (user) setIssueCardUser(user);
+});
+
+document.getElementById('issueCardClearUser')?.addEventListener('click', () => {
+  issueCardSelectedUserId = null;
+  document.getElementById('issueCardSelectedUser').classList.add('hidden');
+  document.getElementById('issueCardSubmitBtn').disabled = true;
+});
+
+document.getElementById('issueCardOpenBtn')?.addEventListener('click', () => {
+  issueCardSelectedUserId = null;
+  document.getElementById('issueCardSelectedUser').classList.add('hidden');
+  document.getElementById('issueCardSubmitBtn').disabled = true;
+  document.getElementById('issueCardUserSearch').value = '';
+  document.getElementById('issueCardMsg').classList.add('hidden');
+  document.getElementById('issueCardModal').classList.remove('hidden');
+});
+
+document.getElementById('issueCardCloseBtn')?.addEventListener('click', () => {
+  document.getElementById('issueCardModal').classList.add('hidden');
+});
+
+document.getElementById('issueCardSubmitBtn')?.addEventListener('click', async () => {
+  if (!issueCardSelectedUserId) return;
+  const card_type = document.getElementById('issueCardType').value;
+  const design    = document.getElementById('issueCardDesign').value;
+  const msg = document.getElementById('issueCardMsg');
+  msg.classList.add('hidden');
+  try {
+    await api.issueAdminCard(issueCardSelectedUserId, { card_type, design });
+    showToast('Картку видано!');
+    document.getElementById('issueCardModal').classList.add('hidden');
+    loadAdminCards(cardsOffset);
+  } catch (err) {
+    msg.textContent = err.message;
+    msg.className = 'form-msg error';
+    msg.classList.remove('hidden');
+  }
+});
+
+/* ══════════════════════════════════════════════
+   COMPLIANCE PAGE
+══════════════════════════════════════════════ */
+function kycBadge(s) {
+  const map = { not_started: ['', 'Не розпочато'], pending: ['pending', 'Очікує'],
+    in_review: ['processing', 'На перевірці'], verified: ['active', 'Верифіковано'], rejected: ['blocked', 'Відхилено'] };
+  const [cls, lbl] = map[s] || ['', s || '—'];
+  return `<span class="badge badge-${cls}" style="font-size:.75rem">${lbl}</span>`;
+}
+
+function riskBadge(r) {
+  const map = { low: 'active', medium: 'pending', high: 'processing', critical: 'blocked' };
+  return `<span class="badge badge-${map[r] || ''}" style="font-size:.75rem">${r || '—'}</span>`;
+}
+
+function renderCmpPagination(total, offset, limit) {
+  const bar = document.getElementById('compliancePagination');
+  if (!bar) return;
+  const pages = Math.ceil(total / limit);
+  const cur   = Math.floor(offset / limit);
+  if (pages <= 1) { bar.innerHTML = ''; return; }
+  let html = '';
+  for (let i = 0; i < pages; i++) {
+    html += `<button class="page-btn${i === cur ? ' active' : ''}" data-offset="${i * limit}">${i + 1}</button>`;
+  }
+  bar.innerHTML = html;
+  bar.querySelectorAll('.page-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      cmpOffset = +btn.dataset.offset;
+      loadCompliance(cmpOffset);
+    });
+  });
+}
+
+async function loadComplianceStats() {
+  try {
+    const res = await api.complianceStats();
+    const d = res.data || {};
+    document.getElementById('cmpStatTotal').textContent    = d.total_users ?? '—';
+    document.getElementById('cmpStatVerified').textContent = d.kyc?.verified ?? 0;
+    document.getElementById('cmpStatInReview').textContent = d.kyc?.in_review ?? 0;
+    document.getElementById('cmpStatPending').textContent  = (d.kyc?.pending ?? 0) + (d.kyc?.not_started ?? 0);
+    document.getElementById('cmpStatRejected').textContent = d.kyc?.rejected ?? 0;
+    document.getElementById('cmpStatAml').textContent      = d.aml_flagged ?? 0;
+    document.getElementById('cmpStatHighRisk').textContent = (d.risk?.high ?? 0) + (d.risk?.critical ?? 0);
+    document.getElementById('cmpStatUntracked').textContent = d.untracked ?? 0;
+  } catch { /* ignore */ }
+}
+
+async function loadCompliance(offset = 0) {
+  cmpOffset = offset;
+  await loadComplianceStats();
+
+  const params = { limit: CMP_LIMIT, offset };
+  const search = (document.getElementById('cmpSearch')?.value || '').trim();
+  const kyc    = document.getElementById('cmpKycFilter')?.value || '';
+  const aml    = document.getElementById('cmpAmlFilter')?.value ?? '';
+  const risk   = document.getElementById('cmpRiskFilter')?.value || '';
+  if (search) params.search = search;
+  if (kyc)    params.kyc_status = kyc;
+  if (aml !== '') params.aml_flag = aml;
+  if (risk)   params.risk_level = risk;
+
+  document.getElementById('complianceBody').innerHTML = '<tr><td colspan="10" class="empty-state">Завантаження…</td></tr>';
+  try {
+    const res = await api.complianceUsers(params);
+    const data  = res.data || [];
+    const total = res.total || 0;
+
+    if (!data.length) {
+      document.getElementById('complianceBody').innerHTML = '<tr><td colspan="10" class="empty-state">Записів не знайдено.</td></tr>';
+      renderCmpPagination(0, 0, CMP_LIMIT);
+      return;
+    }
+
+    document.getElementById('complianceBody').innerHTML = data.map(u => `
+      <tr>
+        <td style="color:var(--text-muted);font-size:.78rem">${u.id}</td>
+        <td style="font-weight:600;font-size:.82rem">${escHtml(u.full_name || '—')}</td>
+        <td style="font-size:.8rem;color:var(--text-muted)">${escHtml(u.phone || '—')}</td>
+        <td>${roleBadge(u.role)}</td>
+        <td>${kycBadge(u.kyc_status)}</td>
+        <td>${u.aml_flag ? '<span class="badge badge-blocked" style="font-size:.75rem">⚑ AML</span>' : '<span style="color:var(--text-muted);font-size:.78rem">—</span>'}</td>
+        <td>${riskBadge(u.risk_level)}</td>
+        <td style="font-size:.78rem;color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(u.notes || '')}">${escHtml(u.notes || '—')}</td>
+        <td style="font-size:.78rem;color:var(--text-muted);white-space:nowrap">${u.updated_at ? fmt(u.updated_at) : '—'}</td>
+        <td class="actions-cell">
+          <button class="btn-secondary cmp-edit-btn" data-uid="${u.id}" style="font-size:.75rem;padding:4px 8px">Редагувати</button>
+        </td>
+      </tr>
+    `).join('');
+
+    renderCmpPagination(total, offset, CMP_LIMIT);
+  } catch (err) {
+    document.getElementById('complianceBody').innerHTML = `<tr><td colspan="10" class="empty-state">${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+document.getElementById('applyCmpFilterBtn')?.addEventListener('click', () => loadCompliance(0));
+document.getElementById('clearCmpFilterBtn')?.addEventListener('click', () => {
+  document.getElementById('cmpSearch').value = '';
+  document.getElementById('cmpKycFilter').value = '';
+  document.getElementById('cmpAmlFilter').value = '';
+  document.getElementById('cmpRiskFilter').value = '';
+  loadCompliance(0);
+});
+
+document.getElementById('refreshComplianceBtn')?.addEventListener('click', () => loadCompliance(0));
+
+/* Compliance detail modal */
+async function openComplianceModal(userId) {
+  cmpModalUserId = userId;
+  try {
+    const res = await api.complianceGetUser(userId);
+    const u = res.data;
+    const cp = u.compliance || {};
+    const initials = (u.full_name || 'C').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    document.getElementById('cmpModalAvatar').textContent    = initials;
+    document.getElementById('cmpModalName').textContent      = u.full_name || '—';
+    document.getElementById('cmpModalRoleBadge').innerHTML   = roleBadge(u.role);
+    document.getElementById('cmpModalUserId').textContent    = u.id;
+    document.getElementById('cmpModalPhone').textContent     = u.phone || '—';
+    document.getElementById('cmpModalEmail').textContent     = u.email || '—';
+    document.getElementById('cmpModalUpdatedAt').textContent = cp.updated_at ? fmt(cp.updated_at) : '—';
+    document.getElementById('cmpModalUpdatedBy').textContent = cp.updated_by_name || (cp.updated_by ? `#${cp.updated_by}` : '—');
+    document.getElementById('cmpEditKyc').value   = cp.kyc_status || 'pending';
+    document.getElementById('cmpEditRisk').value  = cp.risk_level || 'low';
+    document.getElementById('cmpEditAmlFlag').checked = !!cp.aml_flag;
+    document.getElementById('cmpEditNotes').value = cp.notes || '';
+    document.getElementById('cmpModalMsg').classList.add('hidden');
+    document.getElementById('complianceModal').classList.remove('hidden');
+  } catch (err) {
+    showToast('Помилка завантаження: ' + err.message, 'error');
+  }
+}
+
+document.getElementById('complianceBody')?.addEventListener('click', e => {
+  const btn = e.target.closest('.cmp-edit-btn');
+  if (!btn) return;
+  openComplianceModal(+btn.dataset.uid);
+});
+
+document.getElementById('cmpModalCloseBtn')?.addEventListener('click', () => {
+  document.getElementById('complianceModal').classList.add('hidden');
+});
+document.getElementById('cmpModalCancelBtn')?.addEventListener('click', () => {
+  document.getElementById('complianceModal').classList.add('hidden');
+});
+
+document.getElementById('cmpModalSaveBtn')?.addEventListener('click', async () => {
+  if (!cmpModalUserId) return;
+  const msg = document.getElementById('cmpModalMsg');
+  msg.classList.add('hidden');
+  try {
+    await api.complianceUpdateUser(cmpModalUserId, {
+      kyc_status: document.getElementById('cmpEditKyc').value,
+      risk_level: document.getElementById('cmpEditRisk').value,
+      aml_flag:   document.getElementById('cmpEditAmlFlag').checked ? 1 : 0,
+      notes:      document.getElementById('cmpEditNotes').value.trim() || null,
+    });
+    showToast('Збережено!');
+    document.getElementById('complianceModal').classList.add('hidden');
+    loadCompliance(cmpOffset);
+  } catch (err) {
+    msg.textContent = err.message;
+    msg.className = 'form-msg error';
+    msg.classList.remove('hidden');
+  }
+});
 
 /* ══════════════════════════════════════════════
    NAV BINDINGS

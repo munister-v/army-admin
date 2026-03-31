@@ -72,6 +72,14 @@
         <svg viewBox="0 0 20 20" fill="currentColor"><path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clip-rule="evenodd"/></svg>
         Виплати
       </a>
+      <a href="#" class="nav-item" data-page="cards">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4zm14 5H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM6 13a1 1 0 100-2 1 1 0 000 2zm2-1a1 1 0 011-1h4a1 1 0 110 2H9a1 1 0 01-1-1z"/></svg>
+        Картки
+      </a>
+      <a href="#" class="nav-item" data-page="compliance">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 1.944A11.954 11.954 0 012.166 5C2.056 5.649 2 6.319 2 7c0 5.225 3.34 9.67 8 11.317C14.66 16.67 18 12.225 18 7c0-.682-.057-1.35-.166-2.001A11.954 11.954 0 0110 1.944zM11 14a1 1 0 11-2 0 1 1 0 012 0zm0-7a1 1 0 10-2 0v3a1 1 0 102 0V7z" clip-rule="evenodd"/></svg>
+        Комплаєнс
+      </a>
       <a href="#" class="nav-item" data-page="audit">
         <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
         Аудит
@@ -736,6 +744,98 @@
       </div>
     </section>
 
+    <!-- ── CARDS PAGE ── -->
+    <section id="page-cards" class="page">
+      <div class="page-header">
+        <h2>Картки користувачів</h2>
+        <button class="btn-primary" id="issueCardOpenBtn" style="padding:8px 16px;font-size:.82rem">+ Видати картку</button>
+      </div>
+      <div class="tx-registry-grid" id="cardsStatsGrid">
+        <div class="registry-card"><div class="registry-label">Всього</div><div class="registry-value" id="cardStatTotal">—</div></div>
+        <div class="registry-card"><div class="registry-label">Активні</div><div class="registry-value green" id="cardStatActive">—</div></div>
+        <div class="registry-card"><div class="registry-label">Заблоковані</div><div class="registry-value red" id="cardStatBlocked">—</div></div>
+        <div class="registry-card"><div class="registry-label">Закриті</div><div class="registry-value" id="cardStatClosed">—</div></div>
+      </div>
+      <div class="filters-bar wrap">
+        <input type="text" id="cardSearch" class="filter-input" placeholder="Пошук: ім'я, телефон, номер картки…" />
+        <select id="cardStatusFilter" class="filter-select">
+          <option value="">Всі статуси</option>
+          <option value="active">Активні</option>
+          <option value="blocked">Заблоковані</option>
+          <option value="closed">Закриті</option>
+        </select>
+        <input type="number" id="cardUserIdFilter" class="filter-input" placeholder="User ID" min="1" />
+        <button class="btn-secondary" id="applyCardFilterBtn">Фільтрувати</button>
+        <button class="btn-secondary" id="clearCardFilterBtn">Скинути</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="cardsTable">
+          <thead><tr>
+            <th>ID</th><th>Картка</th><th>Тип</th><th>Дизайн</th><th>Власник</th><th>Рахунок</th><th>Статус</th><th>Видано</th><th>Дійсна до</th><th>Дії</th>
+          </tr></thead>
+          <tbody id="cardsBody"><tr><td colspan="10" class="empty-state">Завантаження…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="pagination-bar" id="cardsPagination"></div>
+    </section>
+
+    <!-- ── COMPLIANCE PAGE ── -->
+    <section id="page-compliance" class="page">
+      <div class="page-header">
+        <h2>Комплаєнс</h2>
+        <button class="btn-refresh" id="refreshComplianceBtn">
+          <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+          Оновити
+        </button>
+      </div>
+      <!-- KYC/AML stats -->
+      <div class="tx-registry-grid" id="complianceStatsGrid">
+        <div class="registry-card"><div class="registry-label">Всього користувачів</div><div class="registry-value" id="cmpStatTotal">—</div></div>
+        <div class="registry-card"><div class="registry-label">Верифіковано</div><div class="registry-value green" id="cmpStatVerified">—</div></div>
+        <div class="registry-card"><div class="registry-label">На перевірці</div><div class="registry-value" id="cmpStatInReview">—</div></div>
+        <div class="registry-card"><div class="registry-label">Очікують</div><div class="registry-value" id="cmpStatPending">—</div></div>
+        <div class="registry-card"><div class="registry-label">Відхилено</div><div class="registry-value red" id="cmpStatRejected">—</div></div>
+        <div class="registry-card"><div class="registry-label">AML прапор</div><div class="registry-value red" id="cmpStatAml">—</div></div>
+        <div class="registry-card"><div class="registry-label">Ризик: high+</div><div class="registry-value" id="cmpStatHighRisk">—</div></div>
+        <div class="registry-card"><div class="registry-label">Без профілю</div><div class="registry-value" id="cmpStatUntracked">—</div></div>
+      </div>
+      <!-- Filters -->
+      <div class="filters-bar wrap">
+        <input type="text" id="cmpSearch" class="filter-input" placeholder="Пошук: ім'я, телефон, email…" />
+        <select id="cmpKycFilter" class="filter-select">
+          <option value="">Всі KYC статуси</option>
+          <option value="not_started">Не розпочато</option>
+          <option value="pending">Очікує</option>
+          <option value="in_review">На перевірці</option>
+          <option value="verified">Верифіковано</option>
+          <option value="rejected">Відхилено</option>
+        </select>
+        <select id="cmpAmlFilter" class="filter-select">
+          <option value="">AML: всі</option>
+          <option value="1">Лише flagged</option>
+          <option value="0">Без AML прапору</option>
+        </select>
+        <select id="cmpRiskFilter" class="filter-select">
+          <option value="">Всі рівні ризику</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+          <option value="critical">critical</option>
+        </select>
+        <button class="btn-secondary" id="applyCmpFilterBtn">Фільтрувати</button>
+        <button class="btn-secondary" id="clearCmpFilterBtn">Скинути</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="complianceTable">
+          <thead><tr>
+            <th>ID</th><th>ПІБ</th><th>Телефон</th><th>Роль</th><th>KYC статус</th><th>AML</th><th>Ризик</th><th>Нотатка</th><th>Оновлено</th><th>Дії</th>
+          </tr></thead>
+          <tbody id="complianceBody"><tr><td colspan="10" class="empty-state">Завантаження…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="pagination-bar" id="compliancePagination"></div>
+    </section>
+
     <!-- ── AUDIT PAGE ── -->
     <section id="page-audit" class="page">
       <div class="page-header">
@@ -855,6 +955,114 @@
       <div class="section-title" style="margin:0 0 12px">Таймлайн</div>
       <div id="procModalTimeline" class="proc-timeline">
         <div class="mini-chart-empty">Завантаження…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ISSUE CARD MODAL -->
+<div id="issueCardModal" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:440px">
+    <div class="modal-header">
+      <div class="modal-header-left">
+        <div class="modal-avatar">+</div>
+        <div><h3>Видати картку</h3></div>
+      </div>
+      <button class="modal-close" id="issueCardCloseBtn">✕</button>
+    </div>
+    <div class="modal-section">
+      <div class="field-group">
+        <label>Користувач (ID або пошук)</label>
+        <div class="user-search-wrap">
+          <input type="text" id="issueCardUserSearch" class="filter-input" placeholder="Почніть вводити ім'я або телефон…" autocomplete="off" />
+          <div id="issueCardUserDropdown" class="user-dropdown hidden"></div>
+        </div>
+        <div id="issueCardSelectedUser" class="selected-user hidden">
+          <span id="issueCardSelectedName">—</span>
+          <button id="issueCardClearUser">✕</button>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label>Тип</label>
+          <select id="issueCardType" class="filter-select">
+            <option value="virtual">Віртуальна</option>
+            <option value="physical">Фізична</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>Дизайн</label>
+          <select id="issueCardDesign" class="filter-select">
+            <option value="gold">Gold</option>
+            <option value="black">Black</option>
+            <option value="green">Green</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+      </div>
+      <div id="issueCardMsg" class="form-msg hidden"></div>
+      <button class="btn-primary gold" id="issueCardSubmitBtn" disabled style="margin-top:12px;width:100%">Видати картку</button>
+    </div>
+  </div>
+</div>
+
+<!-- COMPLIANCE EDIT MODAL -->
+<div id="complianceModal" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-header-left">
+        <div class="modal-avatar" id="cmpModalAvatar">C</div>
+        <div>
+          <h3 id="cmpModalName">Комплаєнс</h3>
+          <span id="cmpModalRoleBadge"></span>
+        </div>
+      </div>
+      <button class="modal-close" id="cmpModalCloseBtn">✕</button>
+    </div>
+    <div class="modal-section">
+      <div class="modal-row"><span>ID</span><span id="cmpModalUserId">—</span></div>
+      <div class="modal-row"><span>Телефон</span><span id="cmpModalPhone">—</span></div>
+      <div class="modal-row"><span>Email</span><span id="cmpModalEmail">—</span></div>
+      <div class="modal-row"><span>Оновлено</span><span id="cmpModalUpdatedAt">—</span></div>
+      <div class="modal-row"><span>Ким</span><span id="cmpModalUpdatedBy">—</span></div>
+    </div>
+    <div class="modal-section">
+      <div class="section-title" style="margin:0 0 12px">KYC / AML</div>
+      <div class="field-row">
+        <div class="field-group">
+          <label>KYC статус</label>
+          <select id="cmpEditKyc" class="filter-select">
+            <option value="not_started">Не розпочато</option>
+            <option value="pending">Очікує</option>
+            <option value="in_review">На перевірці</option>
+            <option value="verified">Верифіковано</option>
+            <option value="rejected">Відхилено</option>
+          </select>
+        </div>
+        <div class="field-group">
+          <label>Рівень ризику</label>
+          <select id="cmpEditRisk" class="filter-select">
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="critical">critical</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-group" style="margin-top:10px">
+        <label class="proc-check" style="gap:10px;cursor:pointer">
+          <input type="checkbox" id="cmpEditAmlFlag" />
+          AML прапор (підозріла активність)
+        </label>
+      </div>
+      <div class="field-group" style="margin-top:10px">
+        <label>Нотатка</label>
+        <textarea id="cmpEditNotes" class="filter-input proc-modal-textarea" placeholder="Коментар комплаєнс-офіцера…"></textarea>
+      </div>
+      <div id="cmpModalMsg" class="form-msg hidden"></div>
+      <div class="proc-modal-actions" style="margin-top:12px">
+        <button class="btn-primary" id="cmpModalSaveBtn">Зберегти</button>
+        <button class="btn-secondary" id="cmpModalCancelBtn">Скасувати</button>
       </div>
     </div>
   </div>

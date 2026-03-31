@@ -124,6 +124,26 @@ class AdminAPI {
     const q = new URLSearchParams(params).toString();
     return this.get(`/api/admin/audit-logs${q ? '?' + q : ''}`);
   }
+
+  // ── Admin Cards ──
+  listAdminCards(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get(`/api/admin/cards${q ? '?' + q : ''}`);
+  }
+  getAdminCard(cardId) { return this.get(`/api/admin/cards/${cardId}`); }
+  blockAdminCard(cardId)   { return this.patch(`/api/admin/cards/${cardId}/block`, {}); }
+  unblockAdminCard(cardId) { return this.patch(`/api/admin/cards/${cardId}/unblock`, {}); }
+  closeAdminCard(cardId)   { return this.patch(`/api/admin/cards/${cardId}/close`, {}); }
+  issueAdminCard(userId, data) { return this.post(`/api/admin/users/${userId}/cards`, data); }
+
+  // ── Compliance ──
+  complianceStats()  { return this.get('/api/admin/compliance/stats'); }
+  complianceUsers(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get(`/api/admin/compliance/users${q ? '?' + q : ''}`);
+  }
+  complianceGetUser(userId) { return this.get(`/api/admin/compliance/users/${userId}`); }
+  complianceUpdateUser(userId, data) { return this.patch(`/api/admin/compliance/users/${userId}`, data); }
 }
 
 window.api = new AdminAPI();

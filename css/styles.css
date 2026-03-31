@@ -694,6 +694,12 @@ body {
 .badge-transfer { background: rgba(80,140,220,.1); color: #6db3f5; }
 .badge-deposit { background: rgba(100,200,100,.1); color: #86efac; }
 .badge-withdrawal { background: rgba(248,113,113,.1); color: var(--red); }
+.badge-active     { background: rgba(62,207,142,.12); color: var(--green); }
+.badge-blocked    { background: rgba(248,113,113,.12); color: var(--red); }
+.badge-closed     { background: rgba(120,120,140,.12); color: var(--text-muted); }
+.badge-pending    { background: rgba(250,204,21,.14); color: #facc15; }
+.badge-processing { background: rgba(80,140,220,.15); color: #6db3f5; }
+.actions-cell { white-space: nowrap; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 
 .amount-in { color: var(--green); font-weight: 600; }
 .amount-out { color: var(--red); font-weight: 600; }
