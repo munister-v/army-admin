@@ -955,6 +955,10 @@ body {
 .modal-tab-content { display: none; }
 .modal-tab-content.active { display: block; }
 
+/* Finance page tabs (outside modal — no side padding) */
+.fin-tabs { padding: 0; }
+.fin-tab-content { margin-top: 4px; }
+
 .tx-detail-box {
   max-width: 620px;
 }

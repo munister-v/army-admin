@@ -78,6 +78,10 @@ let procModalOrderId = null;
 let procSlaSelectedIds = new Set();
 let cardsOffset = 0;
 const CARDS_LIMIT = 50;
+let dispatchOffset = 0;
+const DISPATCH_LIMIT = 50;
+let batchRows = [];
+let batchRowId = 0;
 let cmpOffset = 0;
 const CMP_LIMIT = 50;
 let cmpModalUserId = null;
@@ -240,6 +244,7 @@ function loadPage(page) {
     case 'users':        loadUsers(); break;
     case 'transactions': loadTransactions(); loadTxChart(); break;
     case 'processing':   loadProcessing(); break;
+    case 'payouts':      loadFinancePage(); break;
     case 'cards':        loadAdminCards(); break;
     case 'compliance':   loadCompliance(); break;
     case 'audit':        loadAuditLogs(); break;
@@ -2331,16 +2336,335 @@ document.getElementById('submitPayoutBtn').addEventListener('click', async () =>
     return;
   }
   try {
-    const res = await api.createPayout({ user_id: selectedPayoutUser, amount, title, payout_type });
+    await api.createPayout({ user_id: selectedPayoutUser, amount, title, payout_type });
     msgEl.textContent = `✓ Виплату ${fmtMoney(amount)} нараховано успішно.`;
     msgEl.className   = 'form-msg success';
     document.getElementById('payoutAmount').value = '';
     document.getElementById('payoutTitle').value  = '';
     showToast('Виплату нараховано', 'success');
+    loadFinanceStats();
   } catch (err) {
     msgEl.textContent = err.message;
     msgEl.className   = 'form-msg error';
   }
+});
+
+/* ══════════════════════════════════════════════
+   FINANCE PAGE — stats + batch + dispatch
+══════════════════════════════════════════════ */
+function loadFinancePage() {
+  loadFinanceStats();
+  // activate single tab by default
+  finSwitchTab('single');
+  loadDispatch();
+}
+
+async function loadFinanceStats() {
+  try {
+    const [monthRes, todayRes] = await api.financeStats();
+    const monthTxs = monthRes.data || [];
+    const todayTxs = todayRes.data || [];
+
+    const sum = arr => arr.reduce((acc, t) => acc + Number(t.amount || 0), 0);
+
+    document.getElementById('finStatMonthCount').textContent  = monthTxs.length;
+    document.getElementById('finStatMonthAmount').textContent = fmtMoney(sum(monthTxs));
+    document.getElementById('finStatTodayCount').textContent  = todayTxs.length;
+    document.getElementById('finStatTodayAmount').textContent = fmtMoney(sum(todayTxs));
+
+    const combat = monthTxs.filter(t => (t.description || '').toLowerCase().includes('бойов') ||
+                                        (t.tx_type || '') === 'payout' && (t.description || '').toLowerCase().includes('combat'));
+    const salary = monthTxs.filter(t => (t.description || '').toLowerCase().includes('забезп') ||
+                                        (t.description || '').toLowerCase().includes('salary'));
+    document.getElementById('finStatCombat').textContent = `${combat.length} · ${fmtMoney(sum(combat))}`;
+    document.getElementById('finStatSalary').textContent = `${salary.length} · ${fmtMoney(sum(salary))}`;
+  } catch (err) {
+    // stats are non-critical
+  }
+}
+
+// ── Finance tab switcher ──────────────────────────────────────────────────────
+document.querySelectorAll('[data-fin-tab]').forEach(btn => {
+  btn.addEventListener('click', () => finSwitchTab(btn.dataset.finTab));
+});
+
+function finSwitchTab(tab) {
+  document.querySelectorAll('[data-fin-tab]').forEach(b =>
+    b.classList.toggle('active', b.dataset.finTab === tab)
+  );
+  document.querySelectorAll('.fin-tab-content').forEach(p => p.classList.add('hidden'));
+  const panel = document.getElementById(`fin-tab-${tab}`);
+  if (panel) panel.classList.remove('hidden');
+  if (tab === 'dispatch') loadDispatch();
+}
+document.getElementById('refreshPayoutsBtn').addEventListener('click', () => {
+  loadFinanceStats();
+  loadDispatch();
+});
+
+// ── Dispatch journal ──────────────────────────────────────────────────────────
+function renderDispatchPagination(total, offset, limit) {
+  const bar = document.getElementById('dispatchPagination');
+  if (!bar) return;
+  const pages = Math.ceil(total / limit);
+  const cur   = Math.floor(offset / limit);
+  if (pages <= 1) { bar.innerHTML = ''; return; }
+  let html = '';
+  for (let i = 0; i < pages; i++) {
+    html += `<button class="page-btn${i === cur ? ' active' : ''}" data-offset="${i * limit}">${i + 1}</button>`;
+  }
+  bar.innerHTML = html;
+  bar.querySelectorAll('.page-btn').forEach(btn => {
+    btn.addEventListener('click', () => loadDispatch({ offset: +btn.dataset.offset }));
+  });
+}
+
+async function loadDispatch(opts = {}) {
+  dispatchOffset = opts.offset ?? 0;
+  const search = document.getElementById('dispatchSearch').value.trim() || undefined;
+  const type   = document.getElementById('dispatchTypeFilter').value || undefined;
+  const from   = document.getElementById('dispatchFrom').value || undefined;
+  const to     = document.getElementById('dispatchTo').value || undefined;
+
+  const params = { limit: DISPATCH_LIMIT, offset: dispatchOffset };
+  if (search) params.search = search;
+  if (type)   params.description = type;    // backend uses description filter
+  if (from)   params.from_date = from;
+  if (to)     params.to_date   = to;
+
+  document.getElementById('dispatchBody').innerHTML =
+    '<tr><td colspan="7" class="empty-state">Завантаження…</td></tr>';
+
+  try {
+    const res  = await api.listPayouts(params);
+    const rows = res.data || [];
+    const total = res.total ?? rows.length;
+
+    document.getElementById('dispatchBody').innerHTML = rows.length ? rows.map(t => `
+      <tr>
+        <td style="color:var(--text-muted);font-size:.8rem">${t.id}</td>
+        <td style="white-space:nowrap;font-size:.82rem">${fmt(t.created_at)}</td>
+        <td>
+          <div style="font-weight:600;font-size:.85rem">${escHtml(t.user_name || t.full_name || '—')}</div>
+          <div style="color:var(--text-muted);font-size:.78rem">${escHtml(t.related_account || '')}</div>
+        </td>
+        <td><span class="badge badge-${t.tx_type || 'payout'}">${txTypeLabel(t.tx_type)}</span></td>
+        <td style="font-weight:700;color:var(--gold)">${fmtMoney(t.amount)}</td>
+        <td style="font-size:.82rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(t.description || '—')}</td>
+        <td style="font-size:.78rem;color:var(--text-muted)">${escHtml(t.actor_name || '—')}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="7" class="empty-state">Виплат не знайдено</td></tr>';
+
+    // Pagination
+    renderDispatchPagination(total, dispatchOffset, DISPATCH_LIMIT);
+  } catch (err) {
+    document.getElementById('dispatchBody').innerHTML =
+      `<tr><td colspan="7" class="empty-state" style="color:var(--red)">${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+document.getElementById('dispatchApplyBtn').addEventListener('click', () => loadDispatch());
+document.getElementById('dispatchClearBtn').addEventListener('click', () => {
+  document.getElementById('dispatchSearch').value = '';
+  document.getElementById('dispatchTypeFilter').value = '';
+  document.getElementById('dispatchFrom').value = '';
+  document.getElementById('dispatchTo').value = '';
+  loadDispatch();
+});
+
+document.getElementById('dispatchExportCsvBtn').addEventListener('click', async () => {
+  try {
+    const res  = await api.listPayouts({ limit: 2000 });
+    const rows = res.data || [];
+    const header = 'ID,Дата,Отримувач,Рахунок,Сума,Опис';
+    const lines  = rows.map(t =>
+      [t.id, t.created_at, t.user_name || t.full_name, t.related_account, t.amount, `"${(t.description||'').replace(/"/g,'""')}"`].join(',')
+    );
+    const blob = new Blob([header + '\n' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a'); a.href = url;
+    a.download = `payouts_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  } catch (err) { showToast('Помилка: ' + err.message, 'error'); }
+});
+
+// ── Batch payout ──────────────────────────────────────────────────────────────
+function renderBatchTable() {
+  const tbody = document.getElementById('batchBody');
+  const empty = document.getElementById('batchEmptyRow');
+  const PAYOUT_TYPES = { combat: 'Бойова виплата', salary: 'Грошове забезп.', bonus: 'Бонус', other: 'Інше' };
+
+  if (!batchRows.length) {
+    tbody.innerHTML = '';
+    tbody.appendChild(empty);
+    document.getElementById('submitBatchBtn').disabled = true;
+    document.getElementById('batchSummaryLabel').textContent = '0 рядків · ₴ 0,00';
+    return;
+  }
+  empty.remove();
+
+  tbody.innerHTML = batchRows.map((row, idx) => `
+    <tr data-bid="${row.id}">
+      <td style="color:var(--text-muted);font-size:.8rem">${idx + 1}</td>
+      <td>
+        <div style="font-weight:600;font-size:.85rem">${escHtml(row.userName || '—')}</div>
+        <div style="color:var(--text-muted);font-size:.78rem">ID ${row.userId}</div>
+      </td>
+      <td>
+        <select class="filter-select batch-type-sel" data-bid="${row.id}" style="font-size:.8rem;padding:4px 6px">
+          ${Object.entries(PAYOUT_TYPES).map(([v,l]) =>
+            `<option value="${v}" ${row.type === v ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+      </td>
+      <td>
+        <input type="number" class="filter-input batch-amount-inp" data-bid="${row.id}" value="${row.amount || ''}"
+          placeholder="0.00" min="0.01" step="0.01" style="max-width:120px;font-size:.85rem" />
+      </td>
+      <td>
+        <input type="text" class="filter-input batch-title-inp" data-bid="${row.id}" value="${escHtml(row.title || '')}"
+          placeholder="Призначення" style="font-size:.82rem" />
+      </td>
+      <td>
+        <button class="btn-ghost batch-remove-btn" data-bid="${row.id}"
+          style="padding:4px 8px;font-size:.78rem;color:var(--red)">✕</button>
+      </td>
+    </tr>
+  `).join('');
+
+  // bind events
+  tbody.querySelectorAll('.batch-type-sel').forEach(sel =>
+    sel.addEventListener('change', e => { findBatchRow(e.target.dataset.bid).type = e.target.value; updateBatchSummary(); })
+  );
+  tbody.querySelectorAll('.batch-amount-inp').forEach(inp =>
+    inp.addEventListener('input', e => { findBatchRow(e.target.dataset.bid).amount = parseFloat(e.target.value) || 0; updateBatchSummary(); })
+  );
+  tbody.querySelectorAll('.batch-title-inp').forEach(inp =>
+    inp.addEventListener('input', e => { findBatchRow(e.target.dataset.bid).title = e.target.value; })
+  );
+  tbody.querySelectorAll('.batch-remove-btn').forEach(btn =>
+    btn.addEventListener('click', e => {
+      batchRows = batchRows.filter(r => String(r.id) !== String(e.target.dataset.bid));
+      renderBatchTable();
+    })
+  );
+  updateBatchSummary();
+}
+
+function findBatchRow(id) { return batchRows.find(r => String(r.id) === String(id)); }
+
+function updateBatchSummary() {
+  const total = batchRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  document.getElementById('batchSummaryLabel').textContent =
+    `${batchRows.length} рядків · ${fmtMoney(total)}`;
+  document.getElementById('submitBatchBtn').disabled = !batchRows.length || !batchRows.every(r => r.userId && r.amount > 0);
+}
+
+// Add row via user search dropdown (reuse payout search infra)
+let batchAddingRow = null;
+const debouncedBatchSearch = debounce(async q => {
+  if (!q || q.length < 2 || !batchAddingRow) return;
+  try {
+    const res   = await api.listUsers({ search: q });
+    const users = (res.data || []).slice(0, 8);
+    const dd    = document.getElementById(`batchDrop_${batchAddingRow}`);
+    if (!dd) return;
+    if (!users.length) { dd.classList.add('hidden'); return; }
+    dd.innerHTML = users.map(u => `
+      <div class="dropdown-item"
+        onclick="selectBatchUser(${batchAddingRow}, ${u.id}, '${escHtml(u.full_name)}')">
+        <div class="d-name">${escHtml(u.full_name)}</div>
+        <div class="d-sub">${escHtml(u.phone || '')} ${escHtml(u.email || '')}</div>
+      </div>
+    `).join('');
+    dd.classList.remove('hidden');
+  } catch {}
+}, 350);
+
+window.selectBatchUser = function(bid, userId, name) {
+  const row = findBatchRow(bid);
+  if (!row) return;
+  row.userId = userId;
+  row.userName = name;
+  renderBatchTable();
+  updateBatchSummary();
+};
+
+document.getElementById('batchAddRowBtn').addEventListener('click', () => {
+  const id = ++batchRowId;
+  const defaultType   = document.getElementById('batchDefaultType').value || 'combat';
+  const defaultAmount = parseFloat(document.getElementById('batchDefaultAmount').value) || 0;
+  batchRows.push({ id, userId: null, userName: null, type: defaultType, amount: defaultAmount, title: '' });
+
+  // Render the row, then inject a user search field into the user cell
+  renderBatchTable();
+
+  const userCell = document.querySelector(`tr[data-bid="${id}"] td:nth-child(2)`);
+  if (userCell) {
+    userCell.innerHTML = `
+      <div class="user-search-wrap" style="position:relative">
+        <input type="text" class="filter-input" id="batchSearch_${id}" placeholder="Пошук користувача…"
+          autocomplete="off" style="font-size:.82rem" />
+        <div class="user-dropdown hidden" id="batchDrop_${id}"></div>
+      </div>
+    `;
+    batchAddingRow = id;
+    const inp = document.getElementById(`batchSearch_${id}`);
+    inp.addEventListener('input', e => {
+      batchAddingRow = id;
+      debouncedBatchSearch(e.target.value.trim());
+    });
+    inp.focus();
+  }
+});
+
+document.getElementById('batchFillAmountBtn').addEventListener('click', () => {
+  const amt = parseFloat(document.getElementById('batchDefaultAmount').value);
+  if (!amt || amt <= 0) return;
+  batchRows.forEach(r => { r.amount = amt; });
+  renderBatchTable();
+});
+
+document.getElementById('submitBatchBtn').addEventListener('click', async () => {
+  const invalid = batchRows.filter(r => !r.userId || !(r.amount > 0));
+  if (invalid.length) { showToast('Заповніть всі поля', 'error'); return; }
+
+  const btn = document.getElementById('submitBatchBtn');
+  btn.disabled = true;
+  const progressWrap = document.getElementById('batchProgress');
+  const bar          = document.getElementById('batchProgressBar');
+  const log          = document.getElementById('batchResultLog');
+  progressWrap.classList.remove('hidden');
+  log.classList.remove('hidden');
+  log.textContent = '';
+
+  let done = 0;
+  for (const row of batchRows) {
+    try {
+      await api.createPayout({
+        user_id: row.userId,
+        amount: row.amount,
+        title: row.title || 'Виплата',
+        payout_type: row.type,
+      });
+      done++;
+      log.textContent += `✓ [${row.userName}] ${fmtMoney(row.amount)}\n`;
+    } catch (err) {
+      log.textContent += `✗ [${row.userName}] ${err.message}\n`;
+    }
+    bar.style.width = `${Math.round((done / batchRows.length) * 100)}%`;
+    log.scrollTop = log.scrollHeight;
+  }
+  bar.style.width = '100%';
+  showToast(`Пакет: ${done}/${batchRows.length} успішно`, done === batchRows.length ? 'success' : 'error');
+  batchRows = [];
+  batchRowId = 0;
+  setTimeout(() => {
+    renderBatchTable();
+    progressWrap.classList.add('hidden');
+    bar.style.width = '0%';
+    btn.disabled = false;
+    loadFinanceStats();
+  }, 1800);
 });
 
 /* ══════════════════════════════════════════════

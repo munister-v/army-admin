@@ -754,44 +754,156 @@
       <div class="pagination-bar" id="procRiskPagination"></div>
     </section>
 
-    <!-- ── PAYOUTS PAGE ── -->
+    <!-- ── PAYOUTS / FINANCE PAGE ── -->
     <section id="page-payouts" class="page">
       <div class="page-header">
-        <h2>Нарахувати виплату</h2>
+        <h2>Фінансовий відділ</h2>
+        <button class="btn-refresh" id="refreshPayoutsBtn">
+          <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+          Оновити
+        </button>
       </div>
-      <div class="form-card">
-        <div class="field-group">
-          <label>Користувач (пошук за ім'ям / телефоном)</label>
-          <div class="user-search-wrap">
-            <input type="text" id="payoutUserSearch" class="filter-input" placeholder="Почніть вводити…" autocomplete="off" />
-            <div id="payoutUserDropdown" class="user-dropdown hidden"></div>
-          </div>
-          <div id="selectedUserChip" class="selected-user hidden">
-            <span id="selectedUserName">—</span>
-            <button id="clearSelectedUser">✕</button>
-          </div>
+
+      <!-- Finance stats -->
+      <div class="tx-registry-grid" id="financeStatsGrid">
+        <div class="registry-card">
+          <div class="registry-label">Виплат за місяць</div>
+          <div class="registry-value gold" id="finStatMonthCount">—</div>
         </div>
-        <div class="field-row">
+        <div class="registry-card">
+          <div class="registry-label">Сума за місяць</div>
+          <div class="registry-value gold" id="finStatMonthAmount">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Виплат сьогодні</div>
+          <div class="registry-value" id="finStatTodayCount">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Сума сьогодні</div>
+          <div class="registry-value" id="finStatTodayAmount">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Бойові виплати (міс.)</div>
+          <div class="registry-value" id="finStatCombat">—</div>
+        </div>
+        <div class="registry-card">
+          <div class="registry-label">Грошове забезп. (міс.)</div>
+          <div class="registry-value" id="finStatSalary">—</div>
+        </div>
+      </div>
+
+      <!-- Tab switcher -->
+      <div class="modal-tabs fin-tabs" style="margin:20px 0 0">
+        <button class="modal-tab active" data-fin-tab="single">Нарахування</button>
+        <button class="modal-tab" data-fin-tab="batch">Пакетне нарахування</button>
+        <button class="modal-tab" data-fin-tab="dispatch">Диспетч-журнал</button>
+      </div>
+
+      <!-- Tab: Single payout -->
+      <div class="fin-tab-content" id="fin-tab-single">
+        <div class="form-card" style="margin-top:16px;max-width:600px">
           <div class="field-group">
-            <label>Сума (грн)</label>
-            <input type="number" id="payoutAmount" class="filter-input" placeholder="0.00" min="0.01" step="0.01" />
+            <label>Користувач (пошук за ім'ям / телефоном)</label>
+            <div class="user-search-wrap">
+              <input type="text" id="payoutUserSearch" class="filter-input" placeholder="Почніть вводити…" autocomplete="off" />
+              <div id="payoutUserDropdown" class="user-dropdown hidden"></div>
+            </div>
+            <div id="selectedUserChip" class="selected-user hidden">
+              <span id="selectedUserName">—</span>
+              <button id="clearSelectedUser">✕</button>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-group">
+              <label>Сума (грн)</label>
+              <input type="number" id="payoutAmount" class="filter-input" placeholder="0.00" min="0.01" step="0.01" />
+            </div>
+            <div class="field-group">
+              <label>Тип виплати</label>
+              <select id="payoutType" class="filter-select">
+                <option value="combat">Бойова виплата</option>
+                <option value="salary">Грошове забезпечення</option>
+                <option value="bonus">Бонус</option>
+                <option value="other">Інше</option>
+              </select>
+            </div>
           </div>
           <div class="field-group">
-            <label>Тип виплати</label>
-            <select id="payoutType" class="filter-select">
+            <label>Призначення</label>
+            <input type="text" id="payoutTitle" class="filter-input" placeholder="Бойова виплата" />
+          </div>
+          <div id="payoutFormMsg" class="form-msg hidden"></div>
+          <button class="btn-primary gold" id="submitPayoutBtn" disabled>Нарахувати</button>
+        </div>
+      </div>
+
+      <!-- Tab: Batch payout -->
+      <div class="fin-tab-content hidden" id="fin-tab-batch">
+        <div style="margin-top:16px">
+          <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:12px">
+            Додайте одержувачів до таблиці та відправте всі виплати одним кліком.
+          </p>
+          <div class="filters-bar" style="margin-bottom:12px">
+            <select id="batchDefaultType" class="filter-select">
               <option value="combat">Бойова виплата</option>
               <option value="salary">Грошове забезпечення</option>
               <option value="bonus">Бонус</option>
               <option value="other">Інше</option>
             </select>
+            <input type="number" id="batchDefaultAmount" class="filter-input" placeholder="Сума за замовч. (грн)" min="0.01" step="0.01" style="max-width:200px" />
+            <button class="btn-secondary" id="batchAddRowBtn">+ Додати рядок</button>
+            <button class="btn-secondary" id="batchFillAmountBtn">Заповнити суму</button>
           </div>
+          <div class="table-wrap">
+            <table class="data-table" id="batchTable">
+              <thead><tr>
+                <th>#</th><th>Користувач</th><th>Тип</th><th>Сума, грн</th><th>Призначення</th><th></th>
+              </tr></thead>
+              <tbody id="batchBody">
+                <tr id="batchEmptyRow"><td colspan="6" class="empty-state">Додайте рядки для пакетного нарахування</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="filters-bar" style="margin-top:14px;align-items:center">
+            <span id="batchSummaryLabel" style="color:var(--text-muted);font-size:.85rem">0 рядків · ₴ 0,00</span>
+            <div id="batchProgress" class="hidden" style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+              <div id="batchProgressBar" style="height:100%;background:var(--gold);width:0%;transition:width .3s"></div>
+            </div>
+            <button class="btn-primary gold" id="submitBatchBtn" disabled>Відправити пакет</button>
+          </div>
+          <div id="batchResultLog" class="hidden" style="margin-top:12px;max-height:240px;overflow-y:auto;font-size:.82rem;font-family:monospace;background:var(--surface-2);border-radius:var(--radius);padding:12px;color:var(--text-muted)"></div>
         </div>
-        <div class="field-group">
-          <label>Призначення</label>
-          <input type="text" id="payoutTitle" class="filter-input" placeholder="Бойова виплата" />
+      </div>
+
+      <!-- Tab: Dispatch journal -->
+      <div class="fin-tab-content hidden" id="fin-tab-dispatch">
+        <div class="section-title" style="margin-top:16px">Журнал виплат</div>
+        <div class="filters-bar wrap">
+          <input type="text" id="dispatchSearch" class="filter-input" placeholder="Пошук: отримувач, опис…" />
+          <select id="dispatchTypeFilter" class="filter-select">
+            <option value="">Всі типи</option>
+            <option value="combat">Бойова виплата</option>
+            <option value="salary">Грошове забезп.</option>
+            <option value="bonus">Бонус</option>
+            <option value="other">Інше</option>
+          </select>
+          <input type="date" id="dispatchFrom" class="filter-input" style="max-width:155px" />
+          <input type="date" id="dispatchTo" class="filter-input" style="max-width:155px" />
+          <button class="btn-secondary" id="dispatchApplyBtn">Застосувати</button>
+          <button class="btn-secondary" id="dispatchClearBtn">Скинути</button>
+          <button class="btn-secondary" id="dispatchExportCsvBtn">⬇ CSV</button>
         </div>
-        <div id="payoutFormMsg" class="form-msg hidden"></div>
-        <button class="btn-primary gold" id="submitPayoutBtn" disabled>Нарахувати</button>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr>
+              <th>ID</th><th>Дата</th><th>Отримувач</th><th>Тип</th><th>Сума</th><th>Призначення</th><th>Оператор</th>
+            </tr></thead>
+            <tbody id="dispatchBody">
+              <tr><td colspan="7" class="empty-state">Завантаження…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination-bar" id="dispatchPagination"></div>
       </div>
     </section>
 

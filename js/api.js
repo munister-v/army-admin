@@ -120,6 +120,22 @@ class AdminAPI {
   }
   createPayout(data)   { return this.post('/api/admin/payouts', data); }
 
+  // ── Finance / Payouts history ──
+  listPayouts(params = {}) {
+    const q = new URLSearchParams({ tx_type: 'payout', ...params }).toString();
+    return this.get(`/api/admin/transactions?${q}`);
+  }
+  financeStats() {
+    // Uses transactions endpoint with aggregation params
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const today = now.toISOString().slice(0, 10);
+    return Promise.all([
+      this.listPayouts({ from_date: monthStart, limit: 1000 }),
+      this.listPayouts({ from_date: today, limit: 1000 }),
+    ]);
+  }
+
   listAuditLogs(params = {}) {
     const q = new URLSearchParams(params).toString();
     return this.get(`/api/admin/audit-logs${q ? '?' + q : ''}`);
