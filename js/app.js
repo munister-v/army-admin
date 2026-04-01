@@ -82,6 +82,16 @@ let dispatchOffset = 0;
 const DISPATCH_LIMIT = 50;
 let batchRows = [];
 let batchRowId = 0;
+let accOffset = 0;
+const ACC_LIMIT = 100;
+let accAllRows = [];
+let reportSelectedUserId = null;
+let globalReportRows = [];
+let balAllRows = [];
+let balSelectedIds = new Set();
+let balOffset = 0;
+const BAL_LIMIT = 100;
+let balFilteredRows = [];
 let cmpOffset = 0;
 const CMP_LIMIT = 50;
 let cmpModalUserId = null;
@@ -97,7 +107,7 @@ const procRequestSeq = {
 const PROCESSING_ROLES = new Set(['operator', 'admin', 'platform_admin']);
 const ADMIN_ROLES = new Set(['admin', 'platform_admin']);
 const OPERATOR_BULK_ACTIONS = new Set(['assign', 'escalate', 'note']);
-const FULL_ACCESS_PAGES = ['dashboard', 'users', 'transactions', 'processing', 'payouts', 'cards', 'compliance', 'audit'];
+const FULL_ACCESS_PAGES = ['dashboard', 'users', 'transactions', 'processing', 'payouts', 'cards', 'compliance', 'audit', 'accounts', 'balances', 'reports', 'analytics', 'documents', 'simulator'];
 const SLA_MINUTES_BY_RISK = { critical: 15, high: 60, medium: 240, low: 720 };
 const SLA_RISK_WEIGHT = { critical: 4, high: 3, medium: 2, low: 1 };
 const SLA_PRIORITY_WEIGHT = { critical: 4, high: 3, medium: 2, normal: 1 };
@@ -248,6 +258,12 @@ function loadPage(page) {
     case 'cards':        loadAdminCards(); break;
     case 'compliance':   loadCompliance(); break;
     case 'audit':        loadAuditLogs(); break;
+    case 'accounts':     loadAccountsPage(); break;
+    case 'balances':     loadBalancesPage(); break;
+    case 'reports':      loadReportsPage(); break;
+    case 'analytics':    loadAnalyticsPage(); break;
+    case 'documents':    loadDocumentsPage(); break;
+    case 'simulator':    loadSimulatorPage(); break;
   }
 }
 
@@ -286,6 +302,7 @@ function showApp(user) {
   document.getElementById('sidebarRole').textContent = user.role;
   applyRoleUi();
   navigate(defaultPageForRole(user.role));
+  startSessionEngine();
 }
 
 async function tryAutoLogin() {
@@ -335,12 +352,13 @@ document.getElementById('loginForm').addEventListener('submit', async e => {
 });
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {
+  stopSessionEngine();
   await api.logout();
   api.setToken('');
   showAuth();
 });
 
-window.addEventListener('admin:unauthorized', () => showAuth());
+window.addEventListener('admin:unauthorized', () => { stopSessionEngine(); showAuth(); });
 
 /* ══════════════════════════════════════════════
    DASHBOARD
@@ -923,15 +941,7 @@ function exportTransactionsCsv() {
       tx.tx_type, tx.direction, tx.amount, tx.description || '',
     ].map(csvEscape).join(',')),
   ];
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `transactions_registry_${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  downloadCsv(`transactions_registry_${new Date().toISOString().slice(0, 10)}.csv`, lines.join('\n'));
 }
 
 function buildLocalDailyStats(rows = []) {
@@ -2480,11 +2490,7 @@ document.getElementById('dispatchExportCsvBtn').addEventListener('click', async 
     const lines  = rows.map(t =>
       [t.id, t.created_at, t.user_name || t.full_name, t.related_account, t.amount, `"${(t.description||'').replace(/"/g,'""')}"`].join(',')
     );
-    const blob = new Blob([header + '\n' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a'); a.href = url;
-    a.download = `payouts_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click(); URL.revokeObjectURL(url);
+    downloadCsv(`payouts_${new Date().toISOString().slice(0,10)}.csv`, header + '\n' + lines.join('\n'));
   } catch (err) { showToast('Помилка: ' + err.message, 'error'); }
 });
 
@@ -3068,6 +3074,2005 @@ document.getElementById('cmpModalSaveBtn')?.addEventListener('click', async () =
 });
 
 /* ══════════════════════════════════════════════
+   ACCOUNTS PAGE
+══════════════════════════════════════════════ */
+function loadAccountsPage() {
+  accOffset = 0;
+  loadAccounts();
+}
+
+async function loadAccounts() {
+  const search = (document.getElementById('accSearch')?.value || '').trim().toLowerCase();
+  const sort   = document.getElementById('accSortBy')?.value || 'balance_desc';
+  const body   = document.getElementById('accountsBody');
+  const empty  = document.getElementById('accountsEmpty');
+  body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted)">Завантаження…</td></tr>';
+  empty.classList.add('hidden');
+  try {
+    const res = await api.listAccounts({ limit: 500 });
+    let rows = res.users || res.data || [];
+    accAllRows = rows;
+
+    // Update stats
+    const totalBal = rows.reduce((s, u) => s + (u.account?.balance || 0), 0);
+    document.getElementById('accStatTotal').textContent = rows.length;
+    document.getElementById('accStatBalance').textContent = fmtMoney(totalBal);
+    document.getElementById('accStatAvg').textContent = rows.length ? fmtMoney(totalBal / rows.length) : '—';
+    document.getElementById('accStatErrors').textContent = '—';
+
+    // Filter
+    if (search) {
+      rows = rows.filter(u =>
+        (u.full_name || '').toLowerCase().includes(search) ||
+        (u.account?.account_number || '').toLowerCase().includes(search) ||
+        (u.phone || '').includes(search)
+      );
+    }
+
+    // Sort
+    rows = [...rows].sort((a, b) => {
+      if (sort === 'balance_desc') return (b.account?.balance || 0) - (a.account?.balance || 0);
+      if (sort === 'balance_asc')  return (a.account?.balance || 0) - (b.account?.balance || 0);
+      if (sort === 'name_asc') return (a.full_name || '').localeCompare(b.full_name || '', 'uk');
+      if (sort === 'created_desc') return new Date(b.created_at) - new Date(a.created_at);
+      return 0;
+    });
+
+    // Pagination
+    const total  = rows.length;
+    const page   = rows.slice(accOffset, accOffset + ACC_LIMIT);
+    renderAccountsPagination(total, accOffset, ACC_LIMIT);
+
+    if (!page.length) { body.innerHTML = ''; empty.classList.remove('hidden'); return; }
+    body.innerHTML = page.map(u => {
+      const acc = u.account || {};
+      const bal = acc.balance != null ? fmtMoney(acc.balance) : '—';
+      const accNum = acc.account_number ? `<code style="font-size:.78rem">${escHtml(acc.account_number)}</code>` : '—';
+      const cards = u.card_count != null ? u.card_count : '—';
+      const kyc = kycBadge(u.kyc_status);
+      return `<tr>
+        <td>${accNum}</td>
+        <td>${escHtml(u.full_name || '—')}</td>
+        <td>${roleBadge(u.role)}</td>
+        <td style="font-weight:600">${bal}</td>
+        <td>${cards}</td>
+        <td>${kyc}</td>
+        <td>${fmt(u.created_at)}</td>
+        <td>
+          <button class="btn-table" onclick="openUserFromAccounts(${u.id})">Профіль</button>
+          <button class="btn-table" onclick="accBalanceAdjust(${u.id}, '${escHtml(u.full_name || '')}')">Коригування</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="8" style="color:var(--red)">${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderAccountsPagination(total, offset, limit) {
+  const el = document.getElementById('accountsPagination');
+  if (!el) return;
+  const pages = Math.ceil(total / limit);
+  const cur   = Math.floor(offset / limit);
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  el.innerHTML = Array.from({ length: pages }, (_, i) =>
+    `<button class="page-btn${i === cur ? ' active' : ''}" data-accpage="${i}">${i + 1}</button>`
+  ).join('');
+  el.querySelectorAll('[data-accpage]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      accOffset = parseInt(btn.dataset.accpage) * limit;
+      loadAccounts();
+    });
+  });
+}
+
+window.openUserFromAccounts = function(userId) { navigate('users'); openUserModal(userId); };
+
+window.accBalanceAdjust = async function(userId, name) {
+  const amtStr = prompt(`Коригування балансу для ${name}\nВкажіть суму (від'ємна — списання, додатна — поповнення):`);
+  if (amtStr === null) return;
+  const amount = parseFloat(amtStr.replace(',', '.'));
+  if (isNaN(amount) || amount === 0) { showToast('Невірна сума', 'error'); return; }
+  const reason = prompt('Причина коригування:') || '';
+  try {
+    await api.adjustUserBalance(userId, { amount, reason });
+    showToast('Баланс скориговано');
+    loadAccounts();
+  } catch (err) { showToast(err.message, 'error'); }
+};
+
+document.getElementById('refreshAccountsBtn')?.addEventListener('click', loadAccounts);
+document.getElementById('accApplyBtn')?.addEventListener('click', () => { accOffset = 0; loadAccounts(); });
+document.getElementById('accSearch')?.addEventListener('keydown', e => { if (e.key === 'Enter') { accOffset = 0; loadAccounts(); } });
+
+document.getElementById('accountsIntegrityBtn')?.addEventListener('click', async () => {
+  const result = document.getElementById('accountsIntegrityResult');
+  result.textContent = 'Перевірка…';
+  result.className = 'form-msg';
+  result.classList.remove('hidden');
+  try {
+    const res = await api.integrityCheckAll();
+    const issues = res.issues || res.errors || [];
+    if (!issues.length) {
+      result.textContent = 'Цілісність рахунків: ОК — помилок не знайдено.';
+      result.className = 'form-msg success';
+      document.getElementById('accStatErrors').textContent = '0';
+    } else {
+      result.textContent = `Знайдено ${issues.length} проблем: ${issues.slice(0, 3).map(i => i.message || JSON.stringify(i)).join('; ')}${issues.length > 3 ? '…' : ''}`;
+      result.className = 'form-msg error';
+      document.getElementById('accStatErrors').textContent = issues.length;
+    }
+  } catch (err) {
+    result.textContent = `Помилка перевірки: ${err.message}`;
+    result.className = 'form-msg error';
+  }
+});
+
+/* ══════════════════════════════════════════════
+   REPORTS PAGE
+══════════════════════════════════════════════ */
+function loadReportsPage() {
+  // Switch to first tab by default
+  repSwitchTab('user');
+  // Init global date pickers
+  const today = new Date().toISOString().slice(0, 10);
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+  const fromEl = document.getElementById('repGlobalFrom');
+  const toEl   = document.getElementById('repGlobalTo');
+  if (fromEl && !fromEl.value) fromEl.value = monthStart;
+  if (toEl && !toEl.value)     toEl.value   = today;
+  document.getElementById('globalReportEmpty')?.classList.remove('hidden');
+  document.getElementById('globalReportContent')?.classList.add('hidden');
+  document.getElementById('userReportEmpty')?.classList.remove('hidden');
+  document.getElementById('userReportContent')?.classList.add('hidden');
+}
+
+function repSwitchTab(tab) {
+  document.querySelectorAll('[data-rep-tab]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.repTab === tab);
+  });
+  ['user', 'global'].forEach(t => {
+    const el = document.getElementById(`rep-tab-${t}`);
+    if (el) el.classList.toggle('hidden', t !== tab);
+  });
+}
+document.querySelectorAll('[data-rep-tab]').forEach(btn => {
+  btn.addEventListener('click', () => repSwitchTab(btn.dataset.repTab));
+});
+
+// User report — user search
+const repUserSearchEl = document.getElementById('reportUserSearch');
+const repUserDropdown = document.getElementById('reportUserDropdown');
+const debouncedRepUserSearch = debounce(async (q) => {
+  if (q.length < 2) { repUserDropdown?.classList.add('hidden'); return; }
+  try {
+    const res = await api.listUsers({ search: q, limit: 8 });
+    const users = res.users || res.data || [];
+    if (!users.length) { repUserDropdown.innerHTML = '<div class="dropdown-item muted">Не знайдено</div>'; repUserDropdown.classList.remove('hidden'); return; }
+    repUserDropdown.innerHTML = users.map(u =>
+      `<div class="dropdown-item" data-uid="${u.id}" data-name="${escHtml(u.full_name || u.phone || u.id)}">${escHtml(u.full_name || '—')} <span style="color:var(--text-muted);font-size:.8rem">${escHtml(u.phone || '')}</span></div>`
+    ).join('');
+    repUserDropdown.classList.remove('hidden');
+    repUserDropdown.querySelectorAll('.dropdown-item[data-uid]').forEach(item => {
+      item.addEventListener('click', () => {
+        reportSelectedUserId = item.dataset.uid;
+        document.getElementById('reportSelectedName').textContent = item.dataset.name;
+        document.getElementById('reportSelectedUser').classList.remove('hidden');
+        repUserSearchEl.value = '';
+        repUserDropdown.classList.add('hidden');
+        document.getElementById('loadUserReportBtn').disabled = false;
+        document.getElementById('exportUserReportCsvBtn').disabled = true;
+      });
+    });
+  } catch { repUserDropdown?.classList.add('hidden'); }
+}, 300);
+repUserSearchEl?.addEventListener('input', e => debouncedRepUserSearch(e.target.value));
+document.getElementById('reportClearUser')?.addEventListener('click', () => {
+  reportSelectedUserId = null;
+  document.getElementById('reportSelectedUser').classList.add('hidden');
+  document.getElementById('loadUserReportBtn').disabled = true;
+  document.getElementById('exportUserReportCsvBtn').disabled = true;
+  document.getElementById('userReportContent').classList.add('hidden');
+  document.getElementById('userReportEmpty').classList.remove('hidden');
+});
+
+document.getElementById('loadUserReportBtn')?.addEventListener('click', async () => {
+  if (!reportSelectedUserId) return;
+  const content = document.getElementById('userReportContent');
+  const empty   = document.getElementById('userReportEmpty');
+  content.classList.add('hidden');
+  empty.classList.add('hidden');
+  try {
+    const [userRes, txRes, cmpRes] = await api.getUserReport(reportSelectedUserId);
+    const u   = userRes.user || userRes;
+    const acc = u.account || {};
+    const txs = txRes.transactions || txRes.data || [];
+    const cmp = cmpRes?.user || cmpRes || {};
+
+    // Stats
+    document.getElementById('repAvatar').textContent = (u.full_name || '?')[0].toUpperCase();
+    document.getElementById('repName').textContent = u.full_name || '—';
+    document.getElementById('repMeta').textContent = `${u.email || '—'} · ${u.phone || '—'} · ID ${u.id}`;
+    document.getElementById('repKycBadge').innerHTML = kycBadge(u.kyc_status);
+    document.getElementById('repRoleBadge').innerHTML = roleBadge(u.role);
+    document.getElementById('repBalance').textContent = acc.balance != null ? fmtMoney(acc.balance) : '—';
+    document.getElementById('repAccount').textContent = acc.account_number || '—';
+    document.getElementById('repCardCount').textContent = u.card_count != null ? u.card_count : '—';
+    document.getElementById('repTxCount').textContent = txs.length;
+
+    const payouts = txs.filter(t => t.tx_type === 'payout');
+    document.getElementById('repPayoutCount').textContent = payouts.length;
+    document.getElementById('repPayoutSum').textContent = fmtMoney(payouts.reduce((s, t) => s + Math.abs(t.amount || 0), 0));
+
+    // TX table
+    document.getElementById('repTxBody').innerHTML = txs.slice(0, 100).map(t =>
+      `<tr>
+        <td>${fmt(t.created_at)}</td>
+        <td>${txTypeBadge(t.tx_type)}</td>
+        <td style="font-weight:600">${fmtMoney(t.amount)}</td>
+        <td style="color:var(--text-muted);font-size:.82rem">${escHtml(t.description || '—')}</td>
+      </tr>`
+    ).join('') || '<tr><td colspan="4" style="color:var(--text-muted)">Транзакцій не знайдено</td></tr>';
+
+    content.classList.remove('hidden');
+    document.getElementById('exportUserReportCsvBtn').disabled = false;
+    // Store for export
+    window._userReportData = { u, acc, txs, cmp };
+  } catch (err) {
+    empty.textContent = `Помилка: ${err.message}`;
+    empty.classList.remove('hidden');
+  }
+});
+
+document.getElementById('exportUserReportCsvBtn')?.addEventListener('click', () => {
+  const d = window._userReportData;
+  if (!d) return;
+  const { u, acc, txs } = d;
+  let csv = 'Дата,Тип,Сума,Опис\n';
+  txs.forEach(t => {
+    csv += `"${fmt(t.created_at)}","${t.tx_type}","${t.amount}","${(t.description || '').replace(/"/g, '""')}"\n`;
+  });
+  const header = `"Звіт по користувачу: ${u.full_name}","Рахунок: ${acc.account_number || '—'}","Баланс: ${acc.balance}"\n\n`;
+  downloadCsv(`report_user_${u.id}.csv`, header + csv);
+});
+
+// Global report
+document.getElementById('loadGlobalReportBtn')?.addEventListener('click', async () => {
+  const from = document.getElementById('repGlobalFrom').value;
+  const to   = document.getElementById('repGlobalTo').value;
+  const content = document.getElementById('globalReportContent');
+  const empty   = document.getElementById('globalReportEmpty');
+  content.classList.add('hidden');
+  empty.textContent = 'Завантаження…';
+  empty.classList.remove('hidden');
+  try {
+    const res = await api.getGlobalReport({ from_date: from, to_date: to });
+    const txs = res.transactions || res.data || [];
+    globalReportRows = txs;
+
+    const volume = txs.reduce((s, t) => s + Math.abs(t.amount || 0), 0);
+    const byType = {};
+    txs.forEach(t => {
+      const tp = t.tx_type || 'other';
+      byType[tp] = byType[tp] || { count: 0, sum: 0 };
+      byType[tp].count++;
+      byType[tp].sum += Math.abs(t.amount || 0);
+    });
+    const payouts = byType['payout'] || { count: 0, sum: 0 };
+    const dons    = byType['donation'] || { count: 0, sum: 0 };
+
+    document.getElementById('grepTxCount').textContent = txs.length;
+    document.getElementById('grepVolume').textContent   = fmtMoney(volume);
+    document.getElementById('grepPayoutCount').textContent = payouts.count;
+    document.getElementById('grepPayoutSum').textContent   = fmtMoney(payouts.sum);
+    document.getElementById('grepDonCount').textContent    = dons.count;
+    document.getElementById('grepDonSum').textContent      = fmtMoney(dons.sum);
+
+    // Breakdown table
+    document.getElementById('grepBreakdownBody').innerHTML = Object.entries(byType)
+      .sort((a, b) => b[1].sum - a[1].sum)
+      .map(([tp, v]) => {
+        const share = volume > 0 ? ((v.sum / volume) * 100).toFixed(1) + '%' : '—';
+        return `<tr>
+          <td>${txTypeBadge(tp)}</td>
+          <td>${v.count}</td>
+          <td>${fmtMoney(v.sum)}</td>
+          <td>${share}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="4" style="color:var(--text-muted)">Немає даних</td></tr>';
+
+    // Top accounts by volume
+    const byAcc = {};
+    txs.forEach(t => {
+      const accNum = t.account_number || t.from_account || t.to_account || '—';
+      byAcc[accNum] = byAcc[accNum] || { count: 0, vol: 0 };
+      byAcc[accNum].count++;
+      byAcc[accNum].vol += Math.abs(t.amount || 0);
+    });
+    document.getElementById('grepTopBody').innerHTML = Object.entries(byAcc)
+      .sort((a, b) => b[1].vol - a[1].vol)
+      .slice(0, 20)
+      .map(([acc, v]) => `<tr>
+        <td><code style="font-size:.78rem">${escHtml(acc)}</code></td>
+        <td>${v.count}</td>
+        <td>${fmtMoney(v.vol)}</td>
+      </tr>`).join('') || '<tr><td colspan="3" style="color:var(--text-muted)">Немає даних</td></tr>';
+
+    empty.classList.add('hidden');
+    content.classList.remove('hidden');
+    document.getElementById('exportGlobalCsvBtn').disabled = false;
+  } catch (err) {
+    empty.textContent = `Помилка: ${err.message}`;
+    empty.classList.remove('hidden');
+  }
+});
+
+document.getElementById('exportGlobalCsvBtn')?.addEventListener('click', () => {
+  if (!globalReportRows.length) return;
+  let csv = 'Дата,Тип,Сума,Опис,Рахунок\n';
+  globalReportRows.forEach(t => {
+    csv += `"${fmt(t.created_at)}","${t.tx_type}","${t.amount}","${(t.description || '').replace(/"/g, '""')}","${t.account_number || t.from_account || ''}"\n`;
+  });
+  const from = document.getElementById('repGlobalFrom').value;
+  const to   = document.getElementById('repGlobalTo').value;
+  downloadCsv(`global_report_${from}_${to}.csv`, csv);
+});
+
+/* Universal download — works in Telegram WebView, iOS Safari, desktop browsers.
+   Blob + anchor is blocked in TG WebView; data: URI works everywhere. */
+function triggerDownload(filename, dataUrl) {
+  // Try anchor click first (works in Chrome/Firefox desktop)
+  try {
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => a.remove(), 500);
+  } catch {
+    // Fallback: open in new tab (Telegram WebView, some mobile browsers)
+    window.open(dataUrl, '_blank');
+  }
+}
+
+function downloadCsv(filename, content) {
+  // data: URI with BOM for Excel — works in Telegram WebView where blob: URLs are blocked
+  const encoded = encodeURIComponent('\ufeff' + content);
+  triggerDownload(filename, `data:text/csv;charset=utf-8,${encoded}`);
+}
+
+function downloadHtml(filename, content) {
+  const encoded = encodeURIComponent(content);
+  triggerDownload(filename, `data:text/html;charset=utf-8,${encoded}`);
+}
+
+/* ══════════════════════════════════════════════
+   BALANCES PAGE
+══════════════════════════════════════════════ */
+function loadBalancesPage() {
+  balSelectedIds.clear();
+  balOffset = 0;
+  loadBalances();
+}
+
+function balApplyFilters(rows) {
+  const search = (document.getElementById('balSearch')?.value || '').trim().toLowerCase();
+  const filter = document.getElementById('balFilter')?.value || 'all';
+  const sort   = document.getElementById('balSort')?.value || 'balance_desc';
+  if (search) rows = rows.filter(u =>
+    (u.full_name || '').toLowerCase().includes(search) ||
+    (u.account?.account_number || '').toLowerCase().includes(search)
+  );
+  if (filter === 'positive') rows = rows.filter(u => (u.account?.balance || 0) > 0);
+  if (filter === 'zero')     rows = rows.filter(u => (u.account?.balance || 0) === 0);
+  if (filter === 'negative') rows = rows.filter(u => (u.account?.balance || 0) < 0);
+  rows = [...rows].sort((a, b) => {
+    if (sort === 'balance_desc') return (b.account?.balance || 0) - (a.account?.balance || 0);
+    if (sort === 'balance_asc')  return (a.account?.balance || 0) - (b.account?.balance || 0);
+    if (sort === 'name_asc') return (a.full_name || '').localeCompare(b.full_name || '', 'uk');
+    return 0;
+  });
+  return rows;
+}
+
+async function loadBalances() {
+  const body  = document.getElementById('balancesBody');
+  const empty = document.getElementById('balancesEmpty');
+  body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">Завантаження…</td></tr>';
+  empty.classList.add('hidden');
+  try {
+    const res = await api.listAccounts({ limit: 500 });
+    balAllRows = res.users || res.data || [];
+
+    // Stats
+    const totalBal = balAllRows.reduce((s, u) => s + (u.account?.balance || 0), 0);
+    const maxBal   = balAllRows.reduce((m, u) => Math.max(m, u.account?.balance || 0), 0);
+    document.getElementById('balStatUsers').textContent = balAllRows.length;
+    document.getElementById('balStatTotal').textContent = fmtMoney(totalBal);
+    document.getElementById('balStatZero').textContent  = balAllRows.filter(u => (u.account?.balance || 0) === 0).length;
+    document.getElementById('balStatNeg').textContent   = balAllRows.filter(u => (u.account?.balance || 0) < 0).length;
+    document.getElementById('balStatMax').textContent   = fmtMoney(maxBal);
+    document.getElementById('balStatAvg').textContent   = balAllRows.length ? fmtMoney(totalBal / balAllRows.length) : '—';
+
+    renderBalTable();
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="6" style="color:var(--red)">${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderBalTable() {
+  const body  = document.getElementById('balancesBody');
+  const empty = document.getElementById('balancesEmpty');
+  balFilteredRows = balApplyFilters(balAllRows);
+  const page = balFilteredRows.slice(balOffset, balOffset + BAL_LIMIT);
+  renderBalPagination(balFilteredRows.length, balOffset, BAL_LIMIT);
+  updateBalBulkBar();
+  if (!page.length) { body.innerHTML = ''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  body.innerHTML = page.map(u => {
+    const bal = u.account?.balance ?? 0;
+    const balClass = bal < 0 ? 'style="color:var(--red);font-weight:700"' : bal === 0 ? 'style="color:var(--text-muted)"' : 'style="font-weight:600"';
+    const accNum = u.account?.account_number ? `<code style="font-size:.78rem">${escHtml(u.account.account_number)}</code>` : '—';
+    const checked = balSelectedIds.has(u.id) ? 'checked' : '';
+    return `<tr class="${balSelectedIds.has(u.id) ? 'bal-selected' : ''}">
+      <td><input type="checkbox" class="bal-chk" data-uid="${u.id}" data-bal="${bal}" ${checked} /></td>
+      <td>${escHtml(u.full_name || '—')}</td>
+      <td>${accNum}</td>
+      <td ${balClass}>${fmtMoney(bal)}</td>
+      <td>${roleBadge(u.role)}</td>
+      <td style="display:flex;gap:4px;flex-wrap:wrap">
+        <button class="btn-table" onclick="balZeroOne(${u.id},'${escHtml(u.full_name||'')}',${bal})">Обнулити</button>
+        <button class="btn-table" onclick="balAdjustOne(${u.id},'${escHtml(u.full_name||'')}')">Коригування</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  body.querySelectorAll('.bal-chk').forEach(chk => {
+    chk.addEventListener('change', () => {
+      const uid = Number(chk.dataset.uid);
+      chk.checked ? balSelectedIds.add(uid) : balSelectedIds.delete(uid);
+      const row = chk.closest('tr');
+      row.classList.toggle('bal-selected', chk.checked);
+      updateBalBulkBar();
+    });
+  });
+}
+
+function renderBalPagination(total, offset, limit) {
+  const el = document.getElementById('balancesPagination');
+  if (!el) return;
+  const pages = Math.ceil(total / limit);
+  const cur   = Math.floor(offset / limit);
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  el.innerHTML = Array.from({ length: pages }, (_, i) =>
+    `<button class="page-btn${i === cur ? ' active' : ''}" data-bpage="${i}">${i + 1}</button>`
+  ).join('');
+  el.querySelectorAll('[data-bpage]').forEach(btn => {
+    btn.addEventListener('click', () => { balOffset = parseInt(btn.dataset.bpage) * limit; renderBalTable(); });
+  });
+}
+
+function updateBalBulkBar() {
+  const n = balSelectedIds.size;
+  document.getElementById('balBulkCount').textContent = `Обрано: ${n}`;
+  document.getElementById('balBulkZeroBtn').disabled = n === 0;
+  document.getElementById('balBulkAddBtn').disabled  = n === 0;
+  document.getElementById('balBulkSubBtn').disabled  = n === 0;
+}
+
+window.balZeroOne = async function(userId, name, bal) {
+  if (bal === 0) { showToast('Баланс вже нульовий', 'error'); return; }
+  if (!confirm(`Обнулити баланс ${name}?\nПоточний: ${fmtMoney(bal)}`)) return;
+  try {
+    await api.adjustUserBalance(userId, { amount: -bal, reason: 'manual zero-out' });
+    showToast(`Баланс ${name} обнулено`);
+    loadBalances();
+  } catch (err) { showToast(err.message, 'error'); }
+};
+
+window.balAdjustOne = async function(userId, name) {
+  const s = prompt(`Коригування балансу: ${name}\nДодатня сума — поповнення, від'ємна — списання:`);
+  if (s === null) return;
+  const amount = parseFloat(s.replace(',', '.'));
+  if (isNaN(amount) || amount === 0) { showToast('Невірна сума', 'error'); return; }
+  const reason = prompt('Причина:') || 'manual adjust';
+  try {
+    await api.adjustUserBalance(userId, { amount, reason });
+    showToast('Баланс скориговано');
+    loadBalances();
+  } catch (err) { showToast(err.message, 'error'); }
+};
+
+async function balBulkOp(op) {
+  if (!balSelectedIds.size) return;
+  const msg = document.getElementById('balOpMsg');
+  const ids = [...balSelectedIds];
+  let amountVal = 0;
+  if (op !== 'zero') {
+    amountVal = parseFloat((document.getElementById('balBulkAmount')?.value || '0').replace(',', '.'));
+    if (isNaN(amountVal) || amountVal <= 0) { showToast('Введіть суму', 'error'); return; }
+  }
+  const label = op === 'zero' ? 'обнулення' : op === 'add' ? `нарахування ${fmtMoney(amountVal)}` : `списання ${fmtMoney(amountVal)}`;
+  if (!confirm(`${op === 'zero' ? 'Обнулити' : 'Застосувати'} ${label} для ${ids.length} рахунків?`)) return;
+
+  msg.textContent = `Обробка 0/${ids.length}…`;
+  msg.className = 'form-msg';
+  msg.classList.remove('hidden');
+  let done = 0, failed = 0;
+  for (const uid of ids) {
+    const u = balAllRows.find(r => r.id === uid);
+    const curBal = u?.account?.balance ?? 0;
+    let amount = op === 'zero' ? -curBal : op === 'add' ? amountVal : -amountVal;
+    if (op === 'zero' && curBal === 0) { done++; continue; }
+    try {
+      await api.adjustUserBalance(uid, { amount, reason: `bulk ${op}` });
+      done++;
+    } catch { failed++; }
+    msg.textContent = `Обробка ${done + failed}/${ids.length}…`;
+  }
+  msg.textContent = `Виконано: ${done} успішно${failed ? `, ${failed} помилок` : ''}.`;
+  msg.className = `form-msg ${failed ? 'error' : 'success'}`;
+  balSelectedIds.clear();
+  loadBalances();
+}
+
+document.getElementById('refreshBalancesBtn')?.addEventListener('click', loadBalances);
+document.getElementById('balApplyBtn')?.addEventListener('click', () => { balOffset = 0; renderBalTable(); });
+document.getElementById('balSearch')?.addEventListener('keydown', e => { if (e.key === 'Enter') { balOffset = 0; renderBalTable(); } });
+document.getElementById('balBulkZeroBtn')?.addEventListener('click', () => balBulkOp('zero'));
+document.getElementById('balBulkAddBtn')?.addEventListener('click', () => balBulkOp('add'));
+document.getElementById('balBulkSubBtn')?.addEventListener('click', () => balBulkOp('sub'));
+document.getElementById('balSelectAllBtn')?.addEventListener('click', () => {
+  balFilteredRows.forEach(u => balSelectedIds.add(u.id));
+  renderBalTable();
+});
+document.getElementById('balClearSelBtn')?.addEventListener('click', () => {
+  balSelectedIds.clear();
+  renderBalTable();
+});
+document.getElementById('balSelectAllChk')?.addEventListener('change', function() {
+  balFilteredRows.slice(balOffset, balOffset + BAL_LIMIT).forEach(u =>
+    this.checked ? balSelectedIds.add(u.id) : balSelectedIds.delete(u.id)
+  );
+  renderBalTable();
+});
+document.getElementById('balExportCsvBtn')?.addEventListener('click', () => {
+  if (!balAllRows.length) return;
+  let csv = 'ПІБ,Рахунок,Баланс,Роль\n';
+  balApplyFilters(balAllRows).forEach(u => {
+    csv += `"${u.full_name || ''}","${u.account?.account_number || ''}","${u.account?.balance ?? 0}","${u.role}"\n`;
+  });
+  downloadCsv('balances_snapshot.csv', csv);
+});
+
+/* ══════════════════════════════════════════════
+   ANALYTICS PAGE
+══════════════════════════════════════════════ */
+let analyticsLoaded = false;
+
+async function loadAnalyticsPage() {
+  if (analyticsLoaded) return;
+  analyticsLoaded = false;
+  try {
+    // Fetch transactions (up to 2000 for analytics)
+    const [txRes, usersRes] = await Promise.all([
+      api.listTransactions({ limit: 2000 }),
+      api.complianceUsers({ limit: 500 }),
+    ]);
+    const txs   = txRes.transactions || txRes.data || [];
+    const users = usersRes.users || usersRes.data || [];
+    renderCalendarHeatmap(txs);
+    renderHourDayMatrix(txs);
+    renderRiskKycMatrix(users);
+    renderTxTypeDowMatrix(txs);
+    analyticsLoaded = true;
+  } catch (err) {
+    document.getElementById('heatmapWrap').innerHTML = `<div style="color:var(--red)">${escHtml(err.message)}</div>`;
+  }
+}
+
+document.getElementById('refreshAnalyticsBtn')?.addEventListener('click', () => {
+  analyticsLoaded = false;
+  loadAnalyticsPage();
+});
+
+/* ── Calendar Heat Map ── */
+function renderCalendarHeatmap(txs) {
+  const wrap = document.getElementById('heatmapWrap');
+  const legend = document.getElementById('heatmapLegend');
+  if (!wrap) return;
+
+  // Aggregate counts by date string YYYY-MM-DD
+  const countByDay = {};
+  txs.forEach(t => {
+    const d = (t.created_at || '').slice(0, 10);
+    if (d) countByDay[d] = (countByDay[d] || 0) + 1;
+  });
+
+  // Build 52 weeks back from today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const msDay = 86400000;
+  // Start on the most recent Sunday ≥ 364 days ago
+  const startDate = new Date(today.getTime() - 363 * msDay);
+  const dayOffset = startDate.getDay(); // 0=Sun
+  const gridStart = new Date(startDate.getTime() - dayOffset * msDay);
+
+  const maxVal = Math.max(1, ...Object.values(countByDay));
+  const WEEKS  = 54;
+  const CELL   = 13;
+  const GAP    = 2;
+  const LEFT   = 26; // for day labels
+  const TOP    = 22; // for month labels
+  const W      = LEFT + WEEKS * (CELL + GAP);
+  const H      = TOP  + 7   * (CELL + GAP);
+
+  // Legend colors
+  const heatColor = (v, max) => {
+    if (v === 0) return '#e8ede3';
+    const t = Math.pow(v / max, 0.5);
+    // Interpolate #b8d4a8 → #2f4a37
+    const r = Math.round(184 - t * (184 - 47));
+    const g = Math.round(212 - t * (212 - 74));
+    const b = Math.round(168 - t * (168 - 55));
+    return `rgb(${r},${g},${b})`;
+  };
+
+  const DAY_LABELS = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+  const MONTH_NAMES = ['Січ','Лют','Бер','Кві','Тра','Чер','Лип','Сер','Вер','Жов','Лис','Гру'];
+
+  let cells = '';
+  let monthLabels = '';
+  let lastMonth = -1;
+
+  for (let w = 0; w < WEEKS; w++) {
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(gridStart.getTime() + (w * 7 + d) * msDay);
+      if (date > today) continue;
+      const key   = date.toISOString().slice(0, 10);
+      const count = countByDay[key] || 0;
+      const color = heatColor(count, maxVal);
+      const x = LEFT + w * (CELL + GAP);
+      const y = TOP  + d * (CELL + GAP);
+      const title = `${key}: ${count} транзакцій`;
+      cells += `<rect x="${x}" y="${y}" width="${CELL}" height="${CELL}" rx="2" fill="${color}"><title>${title}</title></rect>`;
+
+      // Month label at first day of month
+      const m = date.getMonth();
+      if (d === 0 && m !== lastMonth) {
+        monthLabels += `<text x="${x}" y="${TOP - 5}" font-size="9" fill="var(--text-muted)" font-family="Manrope,sans-serif">${MONTH_NAMES[m]}</text>`;
+        lastMonth = m;
+      }
+    }
+  }
+
+  // Day labels
+  const dayLabels = [1, 3, 5].map(d =>
+    `<text x="0" y="${TOP + d * (CELL + GAP) + CELL - 3}" font-size="9" fill="var(--text-muted)" font-family="Manrope,sans-serif">${DAY_LABELS[d]}</text>`
+  ).join('');
+
+  wrap.innerHTML = `<svg width="${W}" height="${H}" style="display:block">${monthLabels}${dayLabels}${cells}</svg>`;
+
+  // Legend
+  const steps = 5;
+  legend.innerHTML = Array.from({ length: steps }, (_, i) => {
+    const c = heatColor(i / (steps - 1) * maxVal, maxVal);
+    return `<div style="width:13px;height:13px;background:${c};border-radius:2px"></div>`;
+  }).join('');
+}
+
+/* ── Hour × Day Matrix ── */
+function renderHourDayMatrix(txs) {
+  const el = document.getElementById('hourDayMatrix');
+  if (!el) return;
+
+  const DOW = ['Нд','Пн','Вт','Ср','Чт','Пт','Сб'];
+  const matrix = Array.from({ length: 24 }, () => new Array(7).fill(0));
+  txs.forEach(t => {
+    const d = new Date(t.created_at);
+    if (isNaN(d)) return;
+    matrix[d.getHours()][d.getDay()]++;
+  });
+  const maxVal = Math.max(1, ...matrix.flat());
+
+  const cellColor = v => {
+    if (v === 0) return '#e8ede3';
+    const t = Math.pow(v / maxVal, 0.6);
+    const r = Math.round(184 - t * 137);
+    const g = Math.round(212 - t * 138);
+    const b = Math.round(168 - t * 113);
+    return `rgb(${r},${g},${b})`;
+  };
+
+  let html = '<table class="matrix-table"><thead><tr><th></th>';
+  DOW.forEach(d => { html += `<th>${d}</th>`; });
+  html += '</tr></thead><tbody>';
+  for (let h = 0; h < 24; h++) {
+    html += `<tr><td class="matrix-row-label">${String(h).padStart(2,'0')}:00</td>`;
+    for (let d = 0; d < 7; d++) {
+      const v = matrix[h][d];
+      html += `<td class="matrix-cell" style="background:${cellColor(v)}" title="${DOW[d]} ${h}:00 — ${v} транзакцій">${v || ''}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  el.outerHTML = `<div id="hourDayMatrix">${html}</div>`;
+}
+
+/* ── Risk × KYC Matrix ── */
+function renderRiskKycMatrix(users) {
+  const el = document.getElementById('riskKycMatrix');
+  if (!el) return;
+  const RISKS = ['low','medium','high','critical'];
+  const KYCS  = ['not_started','pending','in_review','verified','rejected'];
+  const KYC_LABELS = { not_started:'Не розпочато', pending:'Очікує', in_review:'На перевірці', verified:'Верифіковано', rejected:'Відхилено' };
+  const RISK_LABELS = { low:'Low', medium:'Medium', high:'High', critical:'Critical' };
+
+  const matrix = {};
+  RISKS.forEach(r => { matrix[r] = {}; KYCS.forEach(k => { matrix[r][k] = 0; }); });
+  users.forEach(u => {
+    const r = u.risk_level || 'low';
+    const k = u.kyc_status || 'not_started';
+    if (matrix[r] && matrix[r][k] !== undefined) matrix[r][k]++;
+  });
+  const maxVal = Math.max(1, ...RISKS.flatMap(r => KYCS.map(k => matrix[r][k])));
+
+  const RISK_COLORS = { low:'#d1fae5', medium:'#fef9c3', high:'#fed7aa', critical:'#fecaca' };
+  const RISK_TEXT   = { low:'#065f46', medium:'#713f12', high:'#7c2d12', critical:'#7f1d1d' };
+
+  let html = '<table class="matrix-table"><thead><tr><th>Ризик \\ KYC</th>';
+  KYCS.forEach(k => { html += `<th>${KYC_LABELS[k]}</th>`; });
+  html += '<th>Всього</th></tr></thead><tbody>';
+  RISKS.forEach(r => {
+    const rowTotal = KYCS.reduce((s, k) => s + matrix[r][k], 0);
+    html += `<tr><td class="matrix-row-label" style="background:${RISK_COLORS[r]};color:${RISK_TEXT[r]};font-weight:600">${RISK_LABELS[r]}</td>`;
+    KYCS.forEach(k => {
+      const v = matrix[r][k];
+      const intensity = v / maxVal;
+      const alpha = v === 0 ? 0 : 0.08 + intensity * 0.6;
+      html += `<td class="matrix-cell" style="background:rgba(47,74,55,${alpha.toFixed(2)})" title="${RISK_LABELS[r]} / ${KYC_LABELS[k]}: ${v}">${v || ''}</td>`;
+    });
+    html += `<td class="matrix-cell-total">${rowTotal}</td></tr>`;
+  });
+  // Column totals
+  html += '<tr><td class="matrix-row-label" style="font-weight:700">Всього</td>';
+  KYCS.forEach(k => {
+    const colTotal = RISKS.reduce((s, r) => s + matrix[r][k], 0);
+    html += `<td class="matrix-cell-total">${colTotal}</td>`;
+  });
+  html += `<td class="matrix-cell-total" style="font-weight:700">${users.length}</td></tr>`;
+  html += '</tbody></table>';
+  el.outerHTML = `<div id="riskKycMatrix">${html}</div>`;
+}
+
+/* ── Tx Type × Day-of-Week Matrix ── */
+function renderTxTypeDowMatrix(txs) {
+  const el = document.getElementById('txTypeDowMatrix');
+  if (!el) return;
+  const TYPES = ['payout','transfer','deposit','withdrawal','donation'];
+  const TYPE_LABELS = { payout:'Виплата', transfer:'Переказ', deposit:'Депозит', withdrawal:'Зняття', donation:'Донат' };
+  const DOW = ['Нд','Пн','Вт','Ср','Чт','Пт','Сб'];
+
+  const matrix = {};
+  TYPES.forEach(tp => { matrix[tp] = new Array(7).fill(0); });
+  const other = new Array(7).fill(0);
+  txs.forEach(t => {
+    const d = new Date(t.created_at).getDay();
+    if (isNaN(d)) return;
+    if (matrix[t.tx_type]) matrix[t.tx_type][d]++;
+    else other[d]++;
+  });
+  const allVals = [...TYPES.flatMap(tp => matrix[tp]), ...other];
+  const maxVal  = Math.max(1, ...allVals);
+
+  const cellColor = v => {
+    if (!v) return '#e8ede3';
+    const t = Math.pow(v / maxVal, 0.55);
+    const r = Math.round(184 - t * 137);
+    const g = Math.round(212 - t * 138);
+    const b = Math.round(168 - t * 113);
+    return `rgb(${r},${g},${b})`;
+  };
+
+  let html = '<table class="matrix-table"><thead><tr><th>Тип \\ День</th>';
+  DOW.forEach(d => { html += `<th>${d}</th>`; });
+  html += '<th>Всього</th></tr></thead><tbody>';
+
+  [...TYPES, '__other'].forEach(tp => {
+    const row   = tp === '__other' ? other : matrix[tp];
+    const label = tp === '__other' ? 'Інші' : TYPE_LABELS[tp];
+    if (row.every(v => v === 0)) return;
+    const rowTotal = row.reduce((s, v) => s + v, 0);
+    html += `<tr><td class="matrix-row-label">${label}</td>`;
+    row.forEach((v, d) => {
+      html += `<td class="matrix-cell" style="background:${cellColor(v)}" title="${label} ${DOW[d]}: ${v}">${v || ''}</td>`;
+    });
+    html += `<td class="matrix-cell-total">${rowTotal}</td></tr>`;
+  });
+  // Col totals
+  html += '<tr><td class="matrix-row-label" style="font-weight:700">Всього</td>';
+  for (let d = 0; d < 7; d++) {
+    const t = TYPES.reduce((s, tp) => s + (matrix[tp][d] || 0), 0) + other[d];
+    html += `<td class="matrix-cell-total">${t}</td>`;
+  }
+  html += `<td class="matrix-cell-total" style="font-weight:700">${txs.length}</td></tr>`;
+  html += '</tbody></table>';
+  el.outerHTML = `<div id="txTypeDowMatrix">${html}</div>`;
+}
+
+/* ══════════════════════════════════════════════
+   DOCUMENTS — CRYPTO HELPERS
+══════════════════════════════════════════════ */
+const SIG_PRIV_KEY = 'army_sign_priv_jwk';
+const SIG_PUB_KEY  = 'army_sign_pub_jwk';
+const SIG_KEY_DATE = 'army_sign_key_date';
+const DOCS_STORE   = 'army_admin_docs';
+
+function buf2hex(buf) {
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2,'0')).join('');
+}
+function hex2buf(hex) {
+  const a = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < a.length; i++) a[i] = parseInt(hex.slice(i*2, i*2+2), 16);
+  return a.buffer;
+}
+
+async function cryptoGenerateKeyPair() {
+  const kp = await crypto.subtle.generateKey(
+    { name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']
+  );
+  const priv = await crypto.subtle.exportKey('jwk', kp.privateKey);
+  const pub  = await crypto.subtle.exportKey('jwk', kp.publicKey);
+  localStorage.setItem(SIG_PRIV_KEY, JSON.stringify(priv));
+  localStorage.setItem(SIG_PUB_KEY,  JSON.stringify(pub));
+  localStorage.setItem(SIG_KEY_DATE, new Date().toISOString());
+  return kp;
+}
+
+async function cryptoGetSignKey() {
+  const s = localStorage.getItem(SIG_PRIV_KEY);
+  if (!s) return null;
+  return crypto.subtle.importKey('jwk', JSON.parse(s),
+    { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+}
+
+async function cryptoGetVerifyKey(jwkOverride) {
+  const s = jwkOverride || localStorage.getItem(SIG_PUB_KEY);
+  if (!s) return null;
+  const parsed = typeof s === 'string' ? JSON.parse(s) : s;
+  return crypto.subtle.importKey('jwk', parsed,
+    { name: 'ECDSA', namedCurve: 'P-256' }, true, ['verify']);
+}
+
+async function cryptoSign(content) {
+  const key = await cryptoGetSignKey();
+  if (!key) throw new Error('Ключ не знайдено. Згенеруйте ключ у вкладці «Ключ підпису».');
+  const encoded = new TextEncoder().encode(content);
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, encoded);
+  return buf2hex(sig);
+}
+
+async function cryptoVerify(content, sigHex, pubJwk) {
+  try {
+    const key = await cryptoGetVerifyKey(pubJwk);
+    if (!key) return false;
+    const encoded = new TextEncoder().encode(content);
+    return crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, hex2buf(sigHex), encoded);
+  } catch { return false; }
+}
+
+async function cryptoFingerprint() {
+  const s = localStorage.getItem(SIG_PUB_KEY);
+  if (!s) return null;
+  const buf  = new TextEncoder().encode(s);
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return buf2hex(hash).slice(0, 16).toUpperCase().match(/.{2}/g).join(':');
+}
+
+/* ── Doc storage ── */
+function docsLoad() {
+  try { return JSON.parse(localStorage.getItem(DOCS_STORE) || '[]'); } catch { return []; }
+}
+function docsSave(docs) {
+  localStorage.setItem(DOCS_STORE, JSON.stringify(docs));
+}
+function docsNextId() {
+  const docs = docsLoad();
+  const max  = docs.reduce((m, d) => Math.max(m, parseInt(d.seq || 0)), 0);
+  return max + 1;
+}
+
+/* ══════════════════════════════════════════════
+   DOCUMENTS — TEMPLATES
+══════════════════════════════════════════════ */
+const DOC_TYPE_LABELS = {
+  payout_order:    'Наказ про виплату',
+  balance_cert:    'Довідка про рахунок',
+  payout_register: 'Реєстр виплат',
+  compliance_act:  'Акт перевірки KYC/AML',
+};
+
+const DOC_TEMPLATES = {
+  payout_order: {
+    fields: [
+      { id:'doc_number', label:'Номер наказу', type:'text', placeholder:'001' },
+      { id:'date', label:'Дата', type:'date' },
+      { id:'city', label:'Місто', type:'text', placeholder:'Київ' },
+      { id:'unit', label:'Підрозділ', type:'text', placeholder:'В/ч А0000' },
+      { id:'recipient', label:'Отримувач (ПІБ)', type:'text' },
+      { id:'recipient_rank', label:'Звання / посада', type:'text', placeholder:'старший солдат' },
+      { id:'amount', label:'Сума (грн)', type:'number', placeholder:'0.00' },
+      { id:'account', label:'Рахунок IBAN', type:'text', placeholder:'UA00000000000000000000000000' },
+      { id:'purpose', label:'Призначення виплати', type:'text', placeholder:'Бойова виплата' },
+      { id:'basis', label:'Підстава', type:'text', placeholder:'Наказ МО України від ...' },
+      { id:'commander', label:'Командир (ПІБ, звання)', type:'text' },
+    ],
+    renderHtml(f, sig) {
+      return docHtmlWrap(`
+        <div class="doc-header-line">Наказ № ${esc(f.doc_number)} від ${fmtDocDate(f.date)} р., ${esc(f.city)}</div>
+        <h1 class="doc-title">НАКАЗ</h1>
+        <div class="doc-subtitle">Про нарахування грошового забезпечення</div>
+        <div class="doc-unit">${esc(f.unit)}</div>
+
+        <div class="doc-body">
+          <p>На підставі ${esc(f.basis)}, відповідно до встановленого порядку виплати грошового забезпечення особовому складу,</p>
+          <p style="text-align:center;font-weight:700;margin:18px 0">НАКАЗУЮ:</p>
+          <p>1. Здійснити нарахування грошових коштів у розмірі <strong>${fmtDocMoney(f.amount)} (${numToWords(f.amount)} гривень)</strong> на рахунок:</p>
+          <table class="doc-inner-table">
+            <tr><td>Отримувач:</td><td><strong>${esc(f.recipient)}</strong>, ${esc(f.recipient_rank)}</td></tr>
+            <tr><td>Рахунок:</td><td><code>${esc(f.account)}</code></td></tr>
+            <tr><td>Призначення:</td><td>${esc(f.purpose)}</td></tr>
+          </table>
+          <p>2. Контроль за виконанням наказу покладаю на себе.</p>
+        </div>
+        ${docSignatureBlock(f.commander, sig)}
+      `, `Наказ №${f.doc_number} — ${f.purpose}`, sig);
+    },
+  },
+
+  balance_cert: {
+    fields: [
+      { id:'cert_number', label:'Номер довідки', type:'text', placeholder:'Д-001' },
+      { id:'date', label:'Дата видачі', type:'date' },
+      { id:'city', label:'Місто', type:'text', placeholder:'Київ' },
+      { id:'unit', label:'Підрозділ / установа', type:'text', placeholder:'В/ч А0000' },
+      { id:'recipient', label:'Кому видано (ПІБ)', type:'text' },
+      { id:'recipient_rank', label:'Звання / посада', type:'text' },
+      { id:'account_number', label:'Номер рахунку', type:'text' },
+      { id:'balance', label:'Залишок (грн)', type:'number', placeholder:'0.00' },
+      { id:'kyc_status', label:'Статус верифікації', type:'text', placeholder:'Верифіковано' },
+      { id:'cert_purpose', label:'Довідка надається для', type:'text', placeholder:'надання за місцем вимоги' },
+      { id:'issuer', label:'Видав (ПІБ, посада)', type:'text' },
+    ],
+    renderHtml(f, sig) {
+      return docHtmlWrap(`
+        <div class="doc-header-line">Довідка № ${esc(f.cert_number)} від ${fmtDocDate(f.date)} р., ${esc(f.city)}</div>
+        <h1 class="doc-title">ДОВІДКА</h1>
+        <div class="doc-subtitle">Про стан рахунку у платіжній системі Army Bank</div>
+        <div class="doc-unit">${esc(f.unit)}</div>
+        <div class="doc-body">
+          <p>Цим підтверджується, що <strong>${esc(f.recipient)}</strong>, ${esc(f.recipient_rank)}, є власником рахунку в системі Army Bank зі наступними характеристиками:</p>
+          <table class="doc-inner-table">
+            <tr><td>Номер рахунку:</td><td><code>${esc(f.account_number)}</code></td></tr>
+            <tr><td>Залишок на дату видачі:</td><td><strong>${fmtDocMoney(f.balance)} грн</strong></td></tr>
+            <tr><td>Статус верифікації (KYC):</td><td>${esc(f.kyc_status)}</td></tr>
+          </table>
+          <p>Довідка надається для ${esc(f.cert_purpose)}.</p>
+          <p>Дійсна протягом 30 календарних днів з дати видачі.</p>
+        </div>
+        ${docSignatureBlock(f.issuer, sig)}
+      `, `Довідка №${f.cert_number}`, sig);
+    },
+  },
+
+  payout_register: {
+    fields: [
+      { id:'reg_number', label:'Номер реєстру', type:'text', placeholder:'Р-001' },
+      { id:'date', label:'Дата складання', type:'date' },
+      { id:'city', label:'Місто', type:'text', placeholder:'Київ' },
+      { id:'unit', label:'Підрозділ', type:'text', placeholder:'В/ч А0000' },
+      { id:'period_from', label:'Звітний період від', type:'date' },
+      { id:'period_to', label:'Звітний період до', type:'date' },
+      { id:'payout_type', label:'Тип виплат', type:'text', placeholder:'Бойові виплати' },
+      { id:'total_amount', label:'Загальна сума (грн)', type:'number' },
+      { id:'total_count', label:'Кількість одержувачів', type:'number' },
+      { id:'responsible', label:'Відповідальний (ПІБ, посада)', type:'text' },
+      { id:'commander', label:'Командир (ПІБ, звання)', type:'text' },
+    ],
+    renderHtml(f, sig) {
+      return docHtmlWrap(`
+        <div class="doc-header-line">Реєстр № ${esc(f.reg_number)} від ${fmtDocDate(f.date)} р., ${esc(f.city)}</div>
+        <h1 class="doc-title">ЗВЕДЕНИЙ РЕЄСТР</h1>
+        <div class="doc-subtitle">Виплат грошового забезпечення особовому складу</div>
+        <div class="doc-unit">${esc(f.unit)}</div>
+        <div class="doc-body">
+          <table class="doc-inner-table">
+            <tr><td>Звітний період:</td><td>${fmtDocDate(f.period_from)} — ${fmtDocDate(f.period_to)}</td></tr>
+            <tr><td>Тип виплат:</td><td>${esc(f.payout_type)}</td></tr>
+            <tr><td>Кількість одержувачів:</td><td><strong>${esc(f.total_count)} осіб</strong></td></tr>
+            <tr><td>Загальна сума:</td><td><strong>${fmtDocMoney(f.total_amount)} грн</strong></td></tr>
+          </table>
+          <p>Зведений реєстр складено на підставі даних платіжної системи Army Bank. Відповідальний за складання: ${esc(f.responsible)}.</p>
+          <p>Реєстр підлягає зберіганню у відповідності до вимог документообігу підрозділу.</p>
+        </div>
+        ${docSignatureBlock(f.commander, sig)}
+      `, `Реєстр №${f.reg_number}`, sig);
+    },
+  },
+
+  compliance_act: {
+    fields: [
+      { id:'act_number', label:'Номер акту', type:'text', placeholder:'А-001' },
+      { id:'date', label:'Дата', type:'date' },
+      { id:'city', label:'Місто', type:'text', placeholder:'Київ' },
+      { id:'unit', label:'Підрозділ', type:'text', placeholder:'В/ч А0000' },
+      { id:'subject', label:'Суб\'єкт перевірки (ПІБ)', type:'text' },
+      { id:'subject_id', label:'ID користувача системи', type:'text' },
+      { id:'kyc_status', label:'KYC статус', type:'text', placeholder:'verified' },
+      { id:'risk_level', label:'Рівень ризику', type:'text', placeholder:'low' },
+      { id:'aml_flag', label:'AML прапор', type:'text', placeholder:'відсутній' },
+      { id:'conclusion', label:'Висновок', type:'textarea', placeholder:'На підставі проведеної перевірки…' },
+      { id:'inspector', label:'Перевіряючий (ПІБ, посада)', type:'text' },
+    ],
+    renderHtml(f, sig) {
+      return docHtmlWrap(`
+        <div class="doc-header-line">Акт № ${esc(f.act_number)} від ${fmtDocDate(f.date)} р., ${esc(f.city)}</div>
+        <h1 class="doc-title">АКТ</h1>
+        <div class="doc-subtitle">Перевірки відповідності KYC/AML</div>
+        <div class="doc-unit">${esc(f.unit)}</div>
+        <div class="doc-body">
+          <table class="doc-inner-table">
+            <tr><td>Суб'єкт перевірки:</td><td><strong>${esc(f.subject)}</strong> (ID: ${esc(f.subject_id)})</td></tr>
+            <tr><td>KYC статус:</td><td>${esc(f.kyc_status)}</td></tr>
+            <tr><td>Рівень ризику AML:</td><td>${esc(f.risk_level)}</td></tr>
+            <tr><td>AML прапор:</td><td>${esc(f.aml_flag)}</td></tr>
+          </table>
+          <p style="font-weight:600;margin-top:14px">Висновок:</p>
+          <p>${esc(f.conclusion).replace(/\n/g, '<br>')}</p>
+        </div>
+        ${docSignatureBlock(f.inspector, sig)}
+      `, `Акт №${f.act_number}`, sig);
+    },
+  },
+};
+
+/* ── Doc HTML helpers ── */
+function esc(s) { return escHtml(s || ''); }
+
+function fmtDocDate(d) {
+  if (!d) return '___';
+  try {
+    const dt = new Date(d);
+    return dt.toLocaleDateString('uk-UA', { day:'2-digit', month:'long', year:'numeric' });
+  } catch { return d; }
+}
+
+function fmtDocMoney(n) {
+  if (n == null || n === '') return '0,00';
+  return Number(n).toLocaleString('uk-UA', { minimumFractionDigits:2, maximumFractionDigits:2 });
+}
+
+function numToWords(n) {
+  const num = Math.floor(Number(n) || 0);
+  if (num === 0) return 'нуль';
+  const ones  = ['','одна','дві','три','чотири','п\'ять','шість','сім','вісім','дев\'ять'];
+  const teens = ['десять','одинадцять','дванадцять','тринадцять','чотирнадцять','п\'ятнадцять','шістнадцять','сімнадцять','вісімнадцять','дев\'ятнадцять'];
+  const tens  = ['','','двадцять','тридцять','сорок','п\'ятдесят','шістдесят','сімдесят','вісімдесят','дев\'яносто'];
+  const hunds = ['','сто','двісті','триста','чотириста','п\'ятсот','шістсот','сімсот','вісімсот','дев\'ятсот'];
+  const thousands = (n) => {
+    if (n === 1) return 'одна тисяча';
+    if (n === 2) return 'дві тисячі';
+    if (n >= 3 && n <= 4) return `${ones[n]} тисячі`;
+    return `${ones[n]} тисяч`;
+  };
+  let result = '';
+  const t = Math.floor(num / 1000);
+  const r = num % 1000;
+  if (t > 0 && t < 10) result += thousands(t) + ' ';
+  else if (t >= 10) result += t + ' тисяч ';
+  const h = Math.floor(r / 100);
+  const rem = r % 100;
+  if (h > 0) result += hunds[h] + ' ';
+  if (rem >= 10 && rem <= 19) result += teens[rem - 10];
+  else {
+    const d = Math.floor(rem / 10);
+    const o = rem % 10;
+    if (d > 0) result += tens[d] + ' ';
+    if (o > 0) result += ones[o];
+  }
+  return result.trim();
+}
+
+function docSignatureBlock(signer, sig) {
+  if (sig) {
+    // Compute short doc hash fingerprint from signature hex for display
+    const hashShort = sig.signature_hex
+      ? sig.signature_hex.slice(0,8).toUpperCase().match(/.{2}/g).join(':') + '…' + sig.signature_hex.slice(-8).toUpperCase().match(/.{2}/g).join(':')
+      : '—';
+    const hexWrapped = sig.signature_hex
+      ? sig.signature_hex.match(/.{1,64}/g).join('\n')
+      : '—';
+    return `
+    <div class="doc-cert-block">
+      <div class="doc-cert-header">
+        <div class="doc-cert-emblem">
+          <svg viewBox="0 0 40 40" fill="none" width="36" height="36">
+            <polygon points="20,2 37,10 37,30 20,38 3,30 3,10" fill="none" stroke="#2f4a37" stroke-width="1.8"/>
+            <polygon points="20,7 32,13 32,27 20,33 8,27 8,13" fill="rgba(47,74,55,.08)" stroke="#2f4a37" stroke-width="1.2"/>
+            <path d="M14 20 L18 24 L26 16" stroke="#2f4a37" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+        </div>
+        <div class="doc-cert-title-wrap">
+          <div class="doc-cert-title">ЕЛЕКТРОННИЙ ЦИФРОВИЙ ПІДПИС</div>
+          <div class="doc-cert-subtitle">Army Bank Admin System · Кваліфікований підпис</div>
+        </div>
+        <div class="doc-cert-validity">✓&nbsp;ДІЙСНИЙ</div>
+      </div>
+      <div class="doc-cert-body">
+        <div class="doc-cert-row">
+          <span class="doc-cert-label">Підписант</span>
+          <span class="doc-cert-val"><strong>${esc(sig.signer)}</strong></span>
+        </div>
+        <div class="doc-cert-row">
+          <span class="doc-cert-label">Дата та час підпису</span>
+          <span class="doc-cert-val">${esc(sig.signed_at)}</span>
+        </div>
+        <div class="doc-cert-row">
+          <span class="doc-cert-label">Алгоритм підпису</span>
+          <span class="doc-cert-val">ECDSA P-256 / SHA-256 (Web Crypto API)</span>
+        </div>
+        <div class="doc-cert-row">
+          <span class="doc-cert-label">Відбиток публічного ключа</span>
+          <span class="doc-cert-val"><code class="doc-cert-code">${esc(sig.key_fingerprint)}</code></span>
+        </div>
+        <div class="doc-cert-row">
+          <span class="doc-cert-label">Ідентифікатор підпису</span>
+          <span class="doc-cert-val"><code class="doc-cert-code">${hashShort}</code></span>
+        </div>
+        <div class="doc-cert-row doc-cert-row--hex">
+          <span class="doc-cert-label">Значення підпису (ECDSA DER hex)</span>
+          <pre class="doc-cert-hex">${hexWrapped}</pre>
+        </div>
+      </div>
+      <div class="doc-cert-footer">
+        <span>Для перевірки автентичності документа використовуйте вкладку «Перевірка» в системі Army Bank Admin.</span>
+        <span class="doc-cert-watermark">ПІДПИСАНО · ARMY BANK</span>
+      </div>
+    </div>`;
+  }
+
+  // Unsigned — professional placeholder with fields for handwritten signature
+  return `
+  <div class="doc-sig-unsigned">
+    <div class="doc-sig-unsigned-title">МІСЦЕ ДЛЯ ПІДПИСУ</div>
+    <div class="doc-sig-unsigned-grid">
+      <div class="doc-sig-unsigned-col">
+        <div class="doc-sig-unsigned-label">Підписант</div>
+        <div class="doc-sig-unsigned-value"><strong>${esc(signer || '____________________________')}</strong></div>
+      </div>
+      <div class="doc-sig-unsigned-col">
+        <div class="doc-sig-unsigned-label">Підпис</div>
+        <div class="doc-sig-unsigned-line"></div>
+      </div>
+      <div class="doc-sig-unsigned-col">
+        <div class="doc-sig-unsigned-label">Дата</div>
+        <div class="doc-sig-unsigned-line"></div>
+      </div>
+      <div class="doc-sig-unsigned-col">
+        <div class="doc-sig-unsigned-label">М.П.</div>
+        <div class="doc-sig-unsigned-stamp"></div>
+      </div>
+    </div>
+    <div class="doc-sig-unsigned-hint">⚠ Документ не містить електронного підпису. Підпишіть документ у системі Army Bank Admin.</div>
+  </div>`;
+}
+
+function docHtmlWrap(body, title, sig) {
+  const sigStyle = sig ? 'border-top:3px solid #2f4a37;' : 'border-top:2px dashed #ccc;';
+  return `<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8"/>
+<title>${escHtml(title)}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif:ital,wght@0,400;0,700;1,400&display=swap');
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Noto Serif',serif;font-size:13pt;color:#111;background:#fff;padding:30mm 20mm;max-width:210mm;margin:0 auto}
+  .doc-stamp{text-align:center;margin-bottom:18px}
+  .doc-stamp svg{width:48px;height:48px}
+  .doc-org{text-align:center;font-size:10pt;color:#444;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em}
+  .doc-header-line{text-align:center;font-size:9.5pt;color:#666;margin-bottom:12px}
+  .doc-title{text-align:center;font-size:16pt;font-weight:700;letter-spacing:.08em;margin-bottom:6px}
+  .doc-subtitle{text-align:center;font-size:11pt;margin-bottom:4px}
+  .doc-unit{text-align:center;font-size:10pt;color:#555;margin-bottom:20px}
+  .doc-body p{margin:10px 0;line-height:1.7;text-align:justify}
+  .doc-inner-table{width:100%;border-collapse:collapse;margin:12px 0}
+  .doc-inner-table td{padding:5px 8px;border:1px solid #ddd;font-size:11pt;vertical-align:top}
+  .doc-inner-table td:first-child{width:38%;font-weight:600;background:#f8f8f8;white-space:nowrap}
+  code{font-family:monospace;background:#f3f3f3;padding:1px 4px;border-radius:3px;font-size:.85em}
+  /* ── Certificate signature block ── */
+  .doc-cert-block{margin-top:40px;border:2px solid #2f4a37;border-radius:8px;overflow:hidden;page-break-inside:avoid}
+  .doc-cert-header{display:flex;align-items:center;gap:12px;background:#2f4a37;padding:12px 16px;color:#fff}
+  .doc-cert-emblem{flex-shrink:0}
+  .doc-cert-emblem svg polygon,.doc-cert-emblem svg path{stroke:#c8a84b!important}
+  .doc-cert-emblem svg polygon:nth-child(2){fill:rgba(200,168,75,.15)!important}
+  .doc-cert-title-wrap{flex:1}
+  .doc-cert-title{font-size:11pt;font-weight:700;letter-spacing:.06em;color:#f5f0e0}
+  .doc-cert-subtitle{font-size:8.5pt;color:rgba(245,240,224,.65);margin-top:2px}
+  .doc-cert-validity{background:#c8a84b;color:#2f4a37;font-weight:800;font-size:9pt;padding:4px 10px;border-radius:4px;letter-spacing:.04em;white-space:nowrap}
+  .doc-cert-body{padding:14px 16px;background:#f8fcf8}
+  .doc-cert-row{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-bottom:1px solid rgba(47,74,55,.08)}
+  .doc-cert-row:last-child{border-bottom:none}
+  .doc-cert-row--hex{align-items:flex-start;flex-direction:column;gap:4px}
+  .doc-cert-label{font-size:8.5pt;color:#556;font-weight:600;min-width:220px;flex-shrink:0}
+  .doc-cert-val{font-size:9.5pt;color:#111}
+  .doc-cert-code{font-family:monospace;background:#e8ede8;padding:2px 6px;border-radius:3px;font-size:8.5pt;color:#2f4a37}
+  .doc-cert-hex{font-family:monospace;font-size:7.5pt;color:#444;background:#e8ede8;padding:8px;border-radius:4px;word-break:break-all;white-space:pre-wrap;width:100%;margin-top:4px;line-height:1.5}
+  .doc-cert-footer{display:flex;justify-content:space-between;align-items:center;padding:8px 16px;background:#edf5ed;font-size:8pt;color:#556;border-top:1px solid rgba(47,74,55,.15)}
+  .doc-cert-watermark{font-weight:700;color:rgba(47,74,55,.35);font-size:8pt;letter-spacing:.12em;white-space:nowrap}
+  /* ── Unsigned block ── */
+  .doc-sig-unsigned{margin-top:40px;border:2px dashed #bbb;border-radius:6px;padding:16px;background:#fafafa}
+  .doc-sig-unsigned-title{font-size:9pt;font-weight:700;color:#888;letter-spacing:.08em;margin-bottom:12px;text-align:center}
+  .doc-sig-unsigned-grid{display:grid;grid-template-columns:2fr 1fr 1fr 0.8fr;gap:16px;align-items:end}
+  .doc-sig-unsigned-col{}
+  .doc-sig-unsigned-label{font-size:8pt;color:#999;margin-bottom:4px}
+  .doc-sig-unsigned-value{font-size:10pt;color:#333;padding-bottom:4px}
+  .doc-sig-unsigned-line{border-bottom:1.5px solid #bbb;height:28px}
+  .doc-sig-unsigned-stamp{border:1.5px solid #ccc;border-radius:50%;width:60px;height:60px;margin:0 auto}
+  .doc-sig-unsigned-hint{font-size:8pt;color:#b45309;background:#fef9c3;padding:6px 10px;border-radius:4px;margin-top:12px;text-align:center}
+  @media print{body{padding:15mm 15mm}@page{size:A4;margin:0}.doc-cert-block{break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="doc-stamp">
+  <svg viewBox="0 0 60 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <polygon points="30,4 56,16 56,44 30,56 4,44 4,16" fill="none" stroke="#c8a84b" stroke-width="2"/>
+    <polygon points="30,10 50,20 50,40 30,50 10,40 10,20" fill="rgba(200,168,75,.12)" stroke="#c8a84b" stroke-width="1.5"/>
+    <line x1="22" y1="30" x2="38" y2="30" stroke="#c8a84b" stroke-width="2" stroke-linecap="round"/>
+    <line x1="30" y1="22" x2="30" y2="38" stroke="#c8a84b" stroke-width="2" stroke-linecap="round"/>
+  </svg>
+</div>
+<div class="doc-org">ARMY BANK — Платіжна система збройних сил</div>
+${body}
+</body></html>`;
+}
+
+/* ══════════════════════════════════════════════
+   DOCUMENTS — PAGE LOGIC
+══════════════════════════════════════════════ */
+let currentDocFields = {};
+let currentDocType   = '';
+let previewDocId     = null;
+
+function loadDocumentsPage() {
+  docSwitchTab('registry');
+  renderDocRegistry();
+  updateDocKeyStatus();
+}
+
+function docSwitchTab(tab) {
+  document.querySelectorAll('[data-doc-tab]').forEach(btn =>
+    btn.classList.toggle('active', btn.dataset.docTab === tab)
+  );
+  ['registry','create','key','verify'].forEach(t => {
+    const el = document.getElementById(`doc-tab-${t}`);
+    if (el) el.classList.toggle('hidden', t !== tab);
+  });
+}
+document.querySelectorAll('[data-doc-tab]').forEach(btn => {
+  btn.addEventListener('click', () => docSwitchTab(btn.dataset.docTab));
+});
+
+/* ── Registry ── */
+function renderDocRegistry() {
+  const body  = document.getElementById('docRegistryBody');
+  const empty = document.getElementById('docRegistryEmpty');
+  if (!body) return;
+  let docs = docsLoad();
+  const search = (document.getElementById('docRegSearch')?.value || '').toLowerCase();
+  const type   = document.getElementById('docRegType')?.value   || '';
+  const status = document.getElementById('docRegStatus')?.value || '';
+  if (search) docs = docs.filter(d => (d.title || '').toLowerCase().includes(search));
+  if (type)   docs = docs.filter(d => d.type === type);
+  if (status) docs = docs.filter(d => d.status === status);
+  docs = docs.slice().reverse();
+  if (!docs.length) { body.innerHTML = ''; empty.classList.remove('hidden'); return; }
+  empty.classList.add('hidden');
+  body.innerHTML = docs.map(d => {
+    const statusBadge = d.status === 'signed'
+      ? `<span class="badge badge-active" style="font-size:.75rem">Підписано</span>`
+      : `<span class="badge badge-pending" style="font-size:.75rem">Чернетка</span>`;
+    const signBtn = d.status !== 'signed'
+      ? `<button class="btn-table" onclick="docSignFromRegistry('${d.id}')">Підписати</button>` : '';
+    return `<tr>
+      <td style="font-family:monospace;font-size:.78rem">${esc(d.id)}</td>
+      <td>${esc(DOC_TYPE_LABELS[d.type] || d.type)}</td>
+      <td>${esc(d.title)}</td>
+      <td>${statusBadge}</td>
+      <td>${fmt(d.created_at)}</td>
+      <td style="font-size:.8rem;color:var(--text-muted)">${esc(d.signature?.signer || '—')}</td>
+      <td style="display:flex;gap:4px;flex-wrap:wrap">
+        <button class="btn-table" onclick="docPreviewOpen('${d.id}')">Переглянути</button>
+        ${signBtn}
+        <button class="btn-table" onclick="docDelete('${d.id}')">✕</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+document.getElementById('docRegSearch')?.addEventListener('input', renderDocRegistry);
+document.getElementById('docRegType')?.addEventListener('change', renderDocRegistry);
+document.getElementById('docRegStatus')?.addEventListener('change', renderDocRegistry);
+
+/* ── Create / Fields ── */
+document.getElementById('docTemplateSelect')?.addEventListener('change', function() {
+  const type = this.value;
+  currentDocType = type;
+  currentDocFields = {};
+  const form = document.getElementById('docFieldsForm');
+  const grid = document.getElementById('docFieldsGrid');
+  if (!type) { form?.classList.add('hidden'); return; }
+  const tpl = DOC_TEMPLATES[type];
+  if (!tpl) return;
+  // Auto-fill date
+  const today = new Date().toISOString().slice(0,10);
+  grid.innerHTML = tpl.fields.map(f => {
+    const val = f.type === 'date' && f.id === 'date' ? today : (f.default || '');
+    if (f.type === 'textarea') {
+      return `<div class="field-group doc-field-full"><label>${esc(f.label)}</label>
+        <textarea class="filter-input doc-field" id="df_${f.id}" placeholder="${esc(f.placeholder||'')}" rows="3">${esc(val)}</textarea></div>`;
+    }
+    return `<div class="field-group"><label>${esc(f.label)}</label>
+      <input type="${f.type==='number'?'number':'text'}" class="filter-input doc-field" id="df_${f.id}"
+        placeholder="${esc(f.placeholder||'')}" value="${esc(val)}" ${f.type==='date'?`type="date"`:''}
+        ${f.type==='number'?'step="0.01" min="0"':''}/></div>`;
+  }).join('');
+  // Patch date inputs
+  tpl.fields.filter(f => f.type === 'date').forEach(f => {
+    const el = document.getElementById(`df_${f.id}`);
+    if (el) { el.type = 'date'; if (f.id === 'date') el.value = today; }
+  });
+  form?.classList.remove('hidden');
+});
+
+function collectDocFields() {
+  const tpl = DOC_TEMPLATES[currentDocType];
+  if (!tpl) return {};
+  const fields = {};
+  tpl.fields.forEach(f => {
+    const el = document.getElementById(`df_${f.id}`);
+    fields[f.id] = el ? el.value.trim() : '';
+  });
+  return fields;
+}
+
+function docAutoTitle(type, fields) {
+  if (type === 'payout_order')    return `Наказ №${fields.doc_number||'?'} — ${fields.purpose||'виплата'}`;
+  if (type === 'balance_cert')    return `Довідка №${fields.cert_number||'?'} — ${fields.recipient||''}`;
+  if (type === 'payout_register') return `Реєстр №${fields.reg_number||'?'} (${fields.period_from||''}–${fields.period_to||''})`;
+  if (type === 'compliance_act')  return `Акт №${fields.act_number||'?'} — ${fields.subject||''}`;
+  return 'Документ';
+}
+
+document.getElementById('docPreviewBtn')?.addEventListener('click', () => {
+  const fields = collectDocFields();
+  const html = DOC_TEMPLATES[currentDocType]?.renderHtml(fields, null);
+  if (!html) return;
+  openDocPreviewHtml(html, docAutoTitle(currentDocType, fields), null);
+});
+
+document.getElementById('docSaveDraftBtn')?.addEventListener('click', () => {
+  const fields = collectDocFields();
+  const id  = saveDoc(currentDocType, fields, null);
+  showToast(`Чернетку збережено: ${id}`);
+  docSwitchTab('registry');
+  renderDocRegistry();
+});
+
+document.getElementById('docSignSaveBtn')?.addEventListener('click', async () => {
+  const msg = document.getElementById('docFormMsg');
+  const fields = collectDocFields();
+  msg.classList.add('hidden');
+  try {
+    const sig = await signDocFields(currentDocType, fields, currentAdminUser?.full_name || currentAdminUser?.phone || 'Admin');
+    const id  = saveDoc(currentDocType, fields, sig);
+    showToast(`Підписано і збережено: ${id}`);
+    docSwitchTab('registry');
+    renderDocRegistry();
+  } catch(err) {
+    msg.textContent = err.message;
+    msg.className = 'form-msg error';
+    msg.classList.remove('hidden');
+  }
+});
+
+function saveDoc(type, fields, sig) {
+  const seq  = docsNextId();
+  const id   = `DOC-${String(seq).padStart(3,'0')}`;
+  const docs = docsLoad();
+  docs.push({
+    id, seq, type,
+    title: docAutoTitle(type, fields),
+    status: sig ? 'signed' : 'draft',
+    created_at: new Date().toISOString(),
+    fields,
+    signature: sig || null,
+  });
+  docsSave(docs);
+  return id;
+}
+
+async function signDocFields(type, fields, signerName) {
+  const content = JSON.stringify({ type, fields, signed_at: new Date().toISOString() });
+  const sigHex  = await cryptoSign(content);
+  const fp      = await cryptoFingerprint();
+  return {
+    signer:         signerName,
+    signed_at:      new Date().toLocaleString('uk-UA'),
+    algorithm:      'ECDSA P-256 / SHA-256',
+    key_fingerprint: fp || '—',
+    signature_hex:  sigHex,
+    content,
+  };
+}
+
+/* ── Preview Modal ── */
+function openDocPreviewHtml(html, title, docId) {
+  previewDocId = docId || null;
+  const modal = document.getElementById('docPreviewModal');
+  document.getElementById('docPreviewTitle').textContent = title;
+  const docs = docsLoad();
+  const d    = docs.find(x => x.id === docId);
+  const signBtn = document.getElementById('docPreviewSignBtn');
+  document.getElementById('docPreviewStatus').innerHTML = d
+    ? (d.status === 'signed'
+        ? `<span class="badge badge-active" style="font-size:.75rem">Підписано</span>`
+        : `<span class="badge badge-pending" style="font-size:.75rem">Чернетка</span>`)
+    : '';
+  signBtn.style.display = (d && d.status !== 'signed') ? '' : 'none';
+  // Render in iframe
+  const frame = document.getElementById('docPreviewBody');
+  frame.innerHTML = `<iframe id="docPreviewFrame" style="width:100%;height:100%;border:none;border-radius:0 0 var(--radius) var(--radius)"></iframe>`;
+  const iframe = document.getElementById('docPreviewFrame');
+  iframe.onload = () => {};
+  iframe.srcdoc = html;
+  modal.classList.remove('hidden');
+  // Store for download
+  modal._currentHtml = html;
+  modal._currentTitle = title;
+}
+
+window.docPreviewOpen = function(docId) {
+  const docs = docsLoad();
+  const d    = docs.find(x => x.id === docId);
+  if (!d) return;
+  const html = DOC_TEMPLATES[d.type]?.renderHtml(d.fields, d.signature);
+  if (!html) return;
+  openDocPreviewHtml(html, d.title, docId);
+};
+
+window.docDelete = function(docId) {
+  if (!confirm(`Видалити документ ${docId}?`)) return;
+  const docs = docsLoad().filter(d => d.id !== docId);
+  docsSave(docs);
+  renderDocRegistry();
+};
+
+window.docSignFromRegistry = async function(docId) {
+  try {
+    const docs = docsLoad();
+    const d    = docs.find(x => x.id === docId);
+    if (!d) return;
+    const sig = await signDocFields(d.type, d.fields, currentAdminUser?.full_name || currentAdminUser?.phone || 'Admin');
+    d.status = 'signed';
+    d.signature = sig;
+    docsSave(docs);
+    showToast(`Документ ${docId} підписано`);
+    renderDocRegistry();
+    // Refresh preview if open
+    if (previewDocId === docId && !document.getElementById('docPreviewModal').classList.contains('hidden')) {
+      docPreviewOpen(docId);
+    }
+  } catch(err) { showToast(err.message, 'error'); }
+};
+
+document.getElementById('docPreviewClose')?.addEventListener('click', () => {
+  document.getElementById('docPreviewModal').classList.add('hidden');
+});
+document.getElementById('docPreviewPrintBtn')?.addEventListener('click', () => {
+  const frame = document.getElementById('docPreviewFrame');
+  if (frame?.contentWindow) frame.contentWindow.print();
+});
+document.getElementById('docPreviewDownloadBtn')?.addEventListener('click', () => {
+  const modal = document.getElementById('docPreviewModal');
+  const html  = modal._currentHtml;
+  const title = modal._currentTitle || 'document';
+  if (!html) return;
+  downloadHtml(`${title.replace(/[^а-яёa-z0-9]/gi,'_')}.html`, html);
+});
+document.getElementById('docPreviewSignBtn')?.addEventListener('click', async () => {
+  if (!previewDocId) return;
+  try {
+    await docSignFromRegistry(previewDocId);
+  } catch(err) { showToast(err.message, 'error'); }
+});
+
+/* ── Key Management ── */
+async function updateDocKeyStatus() {
+  const fp        = await cryptoFingerprint();
+  const keyDate   = localStorage.getItem(SIG_KEY_DATE);
+  const badge     = document.getElementById('docKeyStatus');
+  const statusLbl = document.getElementById('keyStatusLabel');
+  const fpEl      = document.getElementById('keyFingerprint');
+  const dateEl    = document.getElementById('keyCreatedAt');
+  const showBtn   = document.getElementById('showPubKeyBtn');
+  const copyBtn   = document.getElementById('copyPubKeyBtn');
+  const expBtn    = document.getElementById('exportPrivKeyBtn');
+  if (fp) {
+    if (badge)     { badge.textContent = 'Ключ активний'; badge.className = 'doc-key-badge doc-key-ok'; }
+    if (statusLbl) statusLbl.textContent = 'Активний';
+    if (fpEl)      fpEl.textContent = fp;
+    if (dateEl)    dateEl.textContent = keyDate ? new Date(keyDate).toLocaleString('uk-UA') : '—';
+    if (showBtn)   showBtn.disabled = false;
+    if (copyBtn)   copyBtn.disabled = false;
+    if (expBtn)    expBtn.disabled  = false;
+  } else {
+    if (badge)     { badge.textContent = 'Ключ не згенеровано'; badge.className = 'doc-key-badge doc-key-none'; }
+    if (statusLbl) statusLbl.textContent = 'Не згенеровано';
+    if (fpEl)      fpEl.textContent = '—';
+    if (dateEl)    dateEl.textContent = '—';
+  }
+}
+
+document.getElementById('genKeyBtn')?.addEventListener('click', async () => {
+  const msg = document.getElementById('keyMsg');
+  const exists = !!localStorage.getItem(SIG_PRIV_KEY);
+  if (exists && !confirm('Існуючий ключ буде замінено. Документи, підписані старим ключем, не можна буде перевірити через нову пару. Продовжити?')) return;
+  try {
+    await cryptoGenerateKeyPair();
+    await updateDocKeyStatus();
+    msg.textContent = 'Новий ключ ECDSA P-256 успішно згенеровано і збережено.';
+    msg.className = 'form-msg success';
+    msg.classList.remove('hidden');
+  } catch(err) {
+    msg.textContent = err.message;
+    msg.className = 'form-msg error';
+    msg.classList.remove('hidden');
+  }
+});
+
+document.getElementById('showPubKeyBtn')?.addEventListener('click', () => {
+  const jwk  = localStorage.getItem(SIG_PUB_KEY);
+  const disp = document.getElementById('pubKeyDisplay');
+  const txt  = document.getElementById('pubKeyText');
+  if (!jwk || !disp || !txt) return;
+  txt.value = JSON.stringify(JSON.parse(jwk), null, 2);
+  disp.classList.toggle('hidden');
+});
+
+document.getElementById('copyPubKeyBtn')?.addEventListener('click', () => {
+  const jwk = localStorage.getItem(SIG_PUB_KEY);
+  if (!jwk) return;
+  navigator.clipboard.writeText(jwk).then(() => showToast('Публічний ключ скопійовано'));
+});
+
+document.getElementById('exportPrivKeyBtn')?.addEventListener('click', () => {
+  const priv = localStorage.getItem(SIG_PRIV_KEY);
+  if (!priv) return;
+  if (!confirm('Приватний ключ є секретним. Зберігайте його в безпечному місці. Продовжити?')) return;
+  const blob = new Blob([priv], { type:'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'army_sign_private_key.json'; a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('importKeyBtn')?.addEventListener('click', async () => {
+  const msg  = document.getElementById('importKeyMsg');
+  const text = document.getElementById('importKeyText')?.value.trim();
+  if (!text) return;
+  try {
+    const jwk = JSON.parse(text);
+    // Validate it's a proper ECDSA key
+    await crypto.subtle.importKey('jwk', jwk, { name:'ECDSA', namedCurve:'P-256' }, true, ['sign']);
+    localStorage.setItem(SIG_PRIV_KEY, text);
+    localStorage.setItem(SIG_KEY_DATE, new Date().toISOString());
+    // Try derive public key (if provided d+x+y, extract x+y as public)
+    const pubJwk = { kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y, key_ops: ['verify'] };
+    localStorage.setItem(SIG_PUB_KEY, JSON.stringify(pubJwk));
+    await updateDocKeyStatus();
+    msg.textContent = 'Ключ успішно імпортовано.';
+    msg.className = 'form-msg success';
+    msg.classList.remove('hidden');
+  } catch(err) {
+    msg.textContent = `Помилка імпорту: ${err.message}`;
+    msg.className = 'form-msg error';
+    msg.classList.remove('hidden');
+  }
+});
+
+/* ── Verify ── */
+document.getElementById('verifyDocBtn')?.addEventListener('click', async () => {
+  const result  = document.getElementById('verifyResult');
+  const pubKey  = document.getElementById('verifyPubKey')?.value.trim();
+  const content = document.getElementById('verifyContent')?.value.trim();
+  const sigHex  = document.getElementById('verifySig')?.value.trim();
+  if (!pubKey || !content || !sigHex) {
+    result.textContent = 'Заповніть всі поля.';
+    result.className = 'form-msg error';
+    result.classList.remove('hidden');
+    return;
+  }
+  try {
+    const valid = await cryptoVerify(content, sigHex, pubKey);
+    result.textContent = valid
+      ? '✓ Підпис дійсний. Документ не змінювався після підписання.'
+      : '✗ Підпис недійсний або документ було змінено.';
+    result.className = `form-msg ${valid ? 'success' : 'error'}`;
+    result.classList.remove('hidden');
+  } catch(err) {
+    result.textContent = `Помилка: ${err.message}`;
+    result.className = 'form-msg error';
+    result.classList.remove('hidden');
+  }
+});
+
+/* ══════════════════════════════════════════════
+   BANKING SIMULATOR — REAL-TIME ENGINE
+   Transactions are scheduled to real clock times.
+   8–12 TX/day spread across weighted hour slots.
+   Paydays on 1st & 15th. Weekend mode. Auto-reschedule at midnight.
+══════════════════════════════════════════════ */
+let simRunning   = false;
+let simTxTotal   = 0;
+let simTodayTx   = 0;
+let simVolume    = 0;
+let simErrors    = 0;
+let simUsers     = [];
+const SIM_LOG_MAX = 300;
+
+// Queue: [{fireAt: Date, txDef, userId, targetId?}]
+let simQueue    = [];
+let simTimers   = [];   // active setTimeout handles
+let simClockTmr = null; // 1-sec clock ticker
+let simMidnightTmr = null;
+
+/* ── Transaction catalog ── */
+const SIM_TX_CATALOG = [
+  { type:'payout',    subtype:'combat', weight:16, amtMin:5000,  amtMax:30000,
+    labels:['Бойова виплата','Виплата за бойові дії','Компенсація ООС','Відшкодування за участь у БД','Виплата за ризик','Виплата учасника бойових дій'] },
+  { type:'payout',    subtype:'salary', weight:20, amtMin:6800,  amtMax:18000,
+    labels:['Грошове забезпечення','Посадовий оклад','Виплата ГЗ','Оклад за в/зв','Місячне ГЗ','Виплата грошового утримання'] },
+  { type:'payout',    subtype:'bonus',  weight:8,  amtMin:500,   amtMax:7000,
+    labels:['Надбавка за вислугу','Надбавка за спецумови','Преміювання','Матеріальна допомога','Разова виплата','Надбавка за таємницю'] },
+  { type:'deposit',   weight:18, amtMin:200,   amtMax:12000,
+    labels:['Поповнення рахунку','Переказ від родичів','Зарахування коштів','Благодійна допомога','Волонтерська допомога','Допомога від фонду'] },
+  { type:'deduction', weight:20, amtMin:80,    amtMax:2500,
+    labels:['Утримання за харчування','Утримання за речмайно','Погашення позики','Утримання за ПММ','Аліменти','Утримання за проживання','Погашення авансу','Повернення переплати'] },
+  { type:'transfer',  weight:18, amtMin:150,   amtMax:6000,
+    labels:['Взаємодопомога','Повернення боргу','Переказ побратиму','Збір на спорядження','Спільна закупівля','Допомога пораненому','Збір на дрон'] },
+];
+
+// Hour weights: probability of a TX at each hour (0–23). Peak 9–17, quiet 22–6.
+const SIM_HOUR_WEIGHTS = [
+  0.2, 0.1, 0.05, 0.05, 0.05, 0.1,  // 0–5
+  0.3, 0.6, 1.2,  2.0,  2.5,  3.0,  // 6–11
+  2.8, 2.5, 3.2,  3.5,  3.0,  2.5,  // 12–17
+  2.0, 1.5, 1.0,  0.7,  0.4,  0.3,  // 18–23
+];
+
+function simPickWeighted(catalog) {
+  const total = catalog.reduce((s, i) => s + i.weight, 0);
+  let r = Math.random() * total;
+  for (const item of catalog) { r -= item.weight; if (r <= 0) return item; }
+  return catalog[catalog.length - 1];
+}
+function simRandItem(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function simRandAmt(min, max) { return Math.round((Math.random() * (max - min) + min) * 100) / 100; }
+function simRandInRange(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+function simEnabledTypes() {
+  const chks = [...document.querySelectorAll('.sim-type-chk:checked')].map(c => c.value);
+  return SIM_TX_CATALOG.filter(t => chks.includes(t.type));
+}
+
+/* ── Schedule builder ──
+   Generates an array of {fireAt, txDef, userId, targetId} for today,
+   spread across real clock hours using weighted random slots. */
+function simBuildDaySchedule(forDate) {
+  if (!simUsers.length) return [];
+  const catalog = simEnabledTypes();
+  if (!catalog.length) return [];
+
+  const now     = new Date();
+  const isToday = forDate.toDateString() === now.toDateString();
+  const dow     = forDate.getDay(); // 0=Sun, 6=Sat
+  const isWeekend = (dow === 0 || dow === 6) && document.getElementById('simWeekendReduce')?.checked;
+  const day     = forDate.getDate();
+  const isPayday1  = day === 1  && document.getElementById('simPayday1')?.checked;
+  const isPayday15 = day === 15 && document.getElementById('simPayday15')?.checked;
+
+  let txMin = parseInt(document.getElementById('simTxMin')?.value || '8');
+  let txMax = parseInt(document.getElementById('simTxMax')?.value || '12');
+  if (isWeekend) { txMin = Math.max(1, Math.floor(txMin * 0.4)); txMax = Math.max(1, Math.floor(txMax * 0.4)); }
+  if (isPayday1 || isPayday15) { txMin = Math.max(txMax, txMin + 4); txMax = txMin + 6; }
+
+  const count = simRandInRange(txMin, txMax);
+  const schedule = [];
+
+  // Pick random hours weighted by SIM_HOUR_WEIGHTS
+  const hourPool = [];
+  SIM_HOUR_WEIGHTS.forEach((w, h) => {
+    const slots = Math.round(w * 4); // relative slots
+    for (let i = 0; i < slots; i++) hourPool.push(h);
+  });
+
+  // Payday special: most TX in morning 8–10
+  const paydayHourPool = [];
+  for (let i = 0; i < 40; i++) paydayHourPool.push(simRandInRange(8, 11));
+
+  for (let i = 0; i < count; i++) {
+    const pool     = (isPayday1 || isPayday15) ? paydayHourPool : hourPool;
+    const hour     = simRandItem(pool);
+    const minute   = simRandInRange(0, 59);
+    const second   = simRandInRange(0, 59);
+
+    const fireAt = new Date(forDate);
+    fireAt.setHours(hour, minute, second, 0);
+    if (isToday && fireAt <= now) continue; // skip past times for today
+
+    // Pick TX type — on payday prefer salary/combat payouts
+    let txDef;
+    if ((isPayday1 || isPayday15) && Math.random() < 0.7) {
+      const payCatalog = SIM_TX_CATALOG.filter(t => t.type === 'payout' && simEnabledTypes().includes(t));
+      txDef = payCatalog.length ? simRandItem(payCatalog) : simPickWeighted(catalog);
+    } else {
+      txDef = simPickWeighted(catalog);
+    }
+
+    const user   = simRandItem(simUsers);
+    const target = txDef.type === 'transfer'
+      ? simRandItem(simUsers.filter(u => u.id !== user.id) || [user])
+      : null;
+
+    schedule.push({ fireAt, txDef, userId: user.id, userName: user.full_name || `#${user.id}`, targetId: target?.id, targetName: target?.full_name });
+  }
+
+  return schedule.sort((a, b) => a.fireAt - b.fireAt);
+}
+
+/* ── Schedule today at midnight ── */
+function simScheduleMidnightReset() {
+  if (simMidnightTmr) clearTimeout(simMidnightTmr);
+  const now       = new Date();
+  const tomorrow  = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 5, 0);
+  const msUntil   = tomorrow - now;
+  simMidnightTmr  = setTimeout(() => {
+    if (!simRunning) return;
+    simTodayTx = 0;
+    simScheduleDay(tomorrow);
+    simScheduleMidnightReset();
+  }, msUntil);
+}
+
+function simScheduleDay(forDate) {
+  // Cancel any pending timers
+  simTimers.forEach(t => clearTimeout(t));
+  simTimers = [];
+  simQueue  = simBuildDaySchedule(forDate);
+
+  renderSimSchedule(forDate);
+  renderSimHourBar();
+  updateSimUI();
+
+  simQueue.forEach(item => {
+    const delay = item.fireAt - Date.now();
+    if (delay < 0) return;
+    const tmr = setTimeout(() => simFireTx(item), delay);
+    simTimers.push(tmr);
+  });
+}
+
+async function simFireTx(item) {
+  if (!simRunning) return;
+  const { txDef, userId, userName, targetId, targetName } = item;
+  const amt   = simRandAmt(txDef.amtMin, txDef.amtMax);
+  const label = simRandItem(txDef.labels);
+  let ok = false, errorMsg = '';
+
+  try {
+    if (txDef.type === 'payout') {
+      await api.createPayout({ user_id: userId, amount: amt, payout_type: txDef.subtype || 'other', title: label });
+    } else if (txDef.type === 'deposit') {
+      await api.adjustUserBalance(userId, { amount: amt, reason: label });
+    } else if (txDef.type === 'deduction') {
+      await api.adjustUserBalance(userId, { amount: -amt, reason: label });
+    } else if (txDef.type === 'transfer' && targetId) {
+      await api.adjustUserBalance(userId,   { amount: -amt, reason: `${label} → ${targetName || targetId}` });
+      await api.adjustUserBalance(targetId, { amount:  amt, reason: `${label} ← ${userName}` });
+    }
+    ok = true;
+    simTxTotal++;
+    simTodayTx++;
+    simVolume += amt;
+  } catch (e) {
+    simErrors++;
+    errorMsg = e.message;
+  }
+
+  simLogEntry({ ok, type: txDef.type, user: userName, label, amt, error: errorMsg, fireAt: item.fireAt });
+  updateSimUI();
+  renderSimSchedule(item.fireAt); // mark item as done
+}
+
+/* ── UI helpers ── */
+function loadSimulatorPage() {
+  updateSimUI();
+  if (simRunning) renderSimSchedule(new Date());
+  renderSimHourBar();
+}
+
+function updateSimUI() {
+  const badge = document.getElementById('simStatusBadge');
+  if (badge) { badge.textContent = simRunning ? 'Активний' : 'Вимкнено'; badge.className = `sim-badge ${simRunning ? 'sim-badge--on' : 'sim-badge--off'}`; }
+  const el = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  el('simStatTodayTx', simTodayTx);
+  el('simStatTx',      simTxTotal);
+  el('simStatVol',     '₴ ' + Math.round(simVolume).toLocaleString('uk-UA'));
+  el('simStatErr',     simErrors);
+  el('simStatUsers',   simUsers.length);
+  // Next scheduled TX
+  const upcoming = simQueue.filter(i => i.fireAt > new Date());
+  const next = upcoming[0];
+  el('simStatNext', next ? next.fireAt.toLocaleTimeString('uk-UA') + ' · ' + (next.userName || '—') : '—');
+  const startBtn = document.getElementById('simStartBtn');
+  const stopBtn  = document.getElementById('simStopBtn');
+  if (startBtn) startBtn.disabled = simRunning;
+  if (stopBtn)  stopBtn.disabled  = !simRunning;
+}
+
+function renderSimSchedule(forDate) {
+  const el   = document.getElementById('simScheduleList');
+  const dateEl = document.getElementById('simScheduleDate');
+  if (!el) return;
+  if (dateEl) dateEl.textContent = forDate ? forDate.toLocaleDateString('uk-UA', { weekday:'long', day:'numeric', month:'long' }) : '';
+  const now = new Date();
+  if (!simQueue.length) { el.innerHTML = '<div class="sim-log-empty">Немає запланованих операцій на сьогодні.</div>'; return; }
+  const ICONS = { payout:'💰', deposit:'⬆', deduction:'⬇', transfer:'↔' };
+  el.innerHTML = simQueue.map(item => {
+    const past = item.fireAt <= now;
+    return `<div class="sim-sched-row${past ? ' sim-sched-row--done' : ''}">
+      <span class="sim-sched-time">${item.fireAt.toLocaleTimeString('uk-UA', { hour:'2-digit', minute:'2-digit' })}</span>
+      <span class="sim-sched-icon">${ICONS[item.txDef.type] || '·'}</span>
+      <span class="sim-sched-user">${escHtml(item.userName)}</span>
+      ${past ? '<span class="sim-sched-done">✓</span>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderSimHourBar() {
+  const el = document.getElementById('simHourBar');
+  if (!el) return;
+  // Count scheduled TX per hour
+  const counts = new Array(24).fill(0);
+  simQueue.forEach(i => counts[i.fireAt.getHours()]++);
+  const maxC = Math.max(1, ...counts);
+  el.innerHTML = counts.map((c, h) => `
+    <div class="sim-hbar-col">
+      <div class="sim-hbar-bar" style="height:${Math.round((c/maxC)*52)+2}px" title="${h}:00 — ${c} tx"></div>
+      <div class="sim-hbar-label">${h % 3 === 0 ? h : ''}</div>
+    </div>`).join('');
+}
+
+function simLogEntry(entry) {
+  const log = document.getElementById('simLog');
+  if (!log) return;
+  const empty = log.querySelector('.sim-log-empty');
+  if (empty) empty.remove();
+  const row   = document.createElement('div');
+  const sign  = entry.type === 'deduction' ? '−' : '+';
+  const ICONS = { payout:'💰', deposit:'⬆', deduction:'⬇', transfer:'↔' };
+  row.className = `sim-log-row sim-log-row--${entry.ok ? (entry.type === 'deduction' ? 'debit' : 'credit') : 'error'}`;
+  row.innerHTML = `
+    <span class="sim-log-icon">${entry.ok ? (ICONS[entry.type]||'·') : '✗'}</span>
+    <span class="sim-log-time">${(entry.fireAt||new Date()).toLocaleTimeString('uk-UA')}</span>
+    <span class="sim-log-user">${escHtml(entry.user)}</span>
+    <span class="sim-log-label">${escHtml(entry.label)}</span>
+    <span class="sim-log-amt ${entry.ok ? (entry.type==='deduction'?'neg':'pos') : 'err'}">
+      ${entry.ok ? sign+'&nbsp;₴'+Number(entry.amt).toLocaleString('uk-UA') : escHtml(entry.error||'err')}
+    </span>`;
+  log.insertBefore(row, log.firstChild);
+  while (log.children.length > SIM_LOG_MAX) log.removeChild(log.lastChild);
+}
+
+function simStartClock() {
+  if (simClockTmr) clearInterval(simClockTmr);
+  simClockTmr = setInterval(() => {
+    const el = document.getElementById('simClockDisplay');
+    if (el) el.textContent = new Date().toLocaleTimeString('uk-UA');
+    // Refresh "next TX" counter every second
+    const upEl = document.getElementById('simStatNext');
+    if (upEl && simRunning) {
+      const next = simQueue.find(i => i.fireAt > new Date());
+      if (next) {
+        const secs = Math.round((next.fireAt - Date.now()) / 1000);
+        const mm   = String(Math.floor(secs / 60)).padStart(2, '0');
+        const ss   = String(secs % 60).padStart(2, '0');
+        upEl.textContent = `${next.fireAt.toLocaleTimeString('uk-UA', {hour:'2-digit',minute:'2-digit'})} (через ${mm}:${ss}) · ${next.userName||'—'}`;
+      } else {
+        upEl.textContent = 'Очікування наступного дня…';
+      }
+    }
+  }, 1000);
+}
+
+/* ── Button bindings ── */
+document.getElementById('simStartBtn')?.addEventListener('click', async () => {
+  const msg = document.getElementById('simInitMsg');
+  msg.classList.add('hidden');
+  try {
+    const res = await api.listAccounts({ limit: 500 });
+    simUsers = (res.users || res.data || []).filter(u => u.id);
+    if (!simUsers.length) throw new Error('Користувачів не знайдено. Перевірте підключення до API.');
+    simRunning  = true;
+    simTxTotal  = 0;
+    simTodayTx  = 0;
+    simVolume   = 0;
+    simErrors   = 0;
+    const log = document.getElementById('simLog');
+    if (log) log.innerHTML = '';
+    simStartClock();
+    simScheduleDay(new Date());
+    simScheduleMidnightReset();
+    updateSimUI();
+    showToast(`Симулятор запущено. ${simUsers.length} учасників, ${simQueue.length} операцій сьогодні.`);
+  } catch (e) {
+    msg.textContent = e.message;
+    msg.className   = 'form-msg error';
+    msg.classList.remove('hidden');
+  }
+});
+
+document.getElementById('simStopBtn')?.addEventListener('click', () => {
+  simRunning = false;
+  simTimers.forEach(t => clearTimeout(t));
+  simTimers = [];
+  if (simMidnightTmr) clearTimeout(simMidnightTmr);
+  if (simClockTmr)    clearInterval(simClockTmr);
+  updateSimUI();
+  showToast(`Симулятор зупинено. Виконано ${simTxTotal} операцій.`);
+});
+
+document.getElementById('simClearLogBtn')?.addEventListener('click', () => {
+  const log = document.getElementById('simLog');
+  if (log) log.innerHTML = '<div class="sim-log-empty">Лог очищено.</div>';
+});
+
+document.getElementById('simZeroAllBtn')?.addEventListener('click', async () => {
+  const msg = document.getElementById('simInitMsg');
+  if (!confirm('Обнулити баланси ВСІХ користувачів?')) return;
+  msg.textContent = 'Завантаження…';
+  msg.className   = 'form-msg';
+  msg.classList.remove('hidden');
+  try {
+    const res   = await api.listAccounts({ limit: 500 });
+    const users = (res.users || res.data || []).filter(u => u.account?.balance && u.account.balance !== 0);
+    if (!users.length) { msg.textContent = 'Всі баланси вже нульові.'; msg.className = 'form-msg success'; return; }
+    let done = 0;
+    for (const u of users) {
+      const bal = u.account.balance;
+      if (bal !== 0) { await api.adjustUserBalance(u.id, { amount: -bal, reason: 'Обнулення симулятора' }); done++; }
+      msg.textContent = `Обнулення ${done}/${users.length}…`;
+    }
+    msg.textContent = `Обнулено ${done} рахунків.`;
+    msg.className   = 'form-msg success';
+  } catch (e) { msg.textContent = `Помилка: ${e.message}`; msg.className = 'form-msg error'; }
+});
+
+/* ══════════════════════════════════════════════
    NAV BINDINGS
 ══════════════════════════════════════════════ */
 document.querySelectorAll('.nav-item').forEach(item => {
@@ -3076,6 +5081,138 @@ document.querySelectorAll('.nav-item').forEach(item => {
 
 document.getElementById('menuToggle').addEventListener('click', () => {
   document.getElementById('sidebar').classList.contains('open') ? closeSidebar() : openSidebar();
+});
+
+/* ══════════════════════════════════════════════
+   SESSION ENGINE
+══════════════════════════════════════════════ */
+const SESSION_IDLE_MS    = 20 * 60 * 1000;  // 20 min idle → show warning
+const SESSION_WARN_MS    = 60 * 1000;       // 60 s countdown
+const SESSION_MIN_EXTEND = 30 * 1000;       // throttle /api/auth/me calls
+
+let _sesIdleTimer    = null;
+let _sesAbsTimer     = null;
+let _sesWarnInterval = null;
+let _sesWarnActive   = false;
+let _sesLastExtend   = 0;
+
+function _sesJwtExp(token) {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof json.exp === 'number' ? json.exp * 1000 : null;
+  } catch (_) { return null; }
+}
+
+function _sesCancelWarn() {
+  if (_sesWarnInterval) { clearInterval(_sesWarnInterval); _sesWarnInterval = null; }
+  _sesWarnActive = false;
+  const ov = document.getElementById('sessionWarnOverlay');
+  if (ov) ov.classList.add('hidden');
+}
+
+function _sesShowWarn() {
+  if (_sesWarnActive) return;
+  _sesWarnActive = true;
+  let secs = Math.round(SESSION_WARN_MS / 1000);
+  const ov = document.getElementById('sessionWarnOverlay');
+  const cd = document.getElementById('sessionWarnCountdown');
+  if (ov) ov.classList.remove('hidden');
+  if (cd) cd.textContent = secs;
+  _sesWarnInterval = setInterval(() => {
+    secs -= 1;
+    if (cd) cd.textContent = Math.max(0, secs);
+    if (secs <= 0) {
+      _sesCancelWarn();
+      _adminLogout('idle');
+    }
+  }, 1000);
+}
+
+function _sesResetIdle() {
+  if (!api.token || _sesWarnActive) return;
+  clearTimeout(_sesIdleTimer);
+  _sesIdleTimer = setTimeout(_sesShowWarn, SESSION_IDLE_MS);
+}
+
+function _sesScheduleAbsolute() {
+  clearTimeout(_sesAbsTimer);
+  if (!api.token) return;
+  const exp = _sesJwtExp(api.token);
+  if (!exp) return;
+  const ms = exp - Date.now();
+  if (ms <= 0) { _adminLogout('expired'); return; }
+  const warnAt = ms - SESSION_WARN_MS;
+  if (warnAt > 0) {
+    _sesAbsTimer = setTimeout(() => {
+      _sesCancelWarn();
+      _sesShowWarn();
+      setTimeout(() => {
+        if (_sesWarnActive) { _sesCancelWarn(); _adminLogout('expired'); }
+      }, SESSION_WARN_MS + 2000);
+    }, warnAt);
+  } else {
+    _sesAbsTimer = setTimeout(() => { _sesCancelWarn(); _adminLogout('expired'); }, Math.max(ms, 100));
+  }
+}
+
+async function _sesExtend() {
+  const now = Date.now();
+  if (now - _sesLastExtend < SESSION_MIN_EXTEND) return;
+  _sesLastExtend = now;
+  try {
+    await api.me();
+    _sesCancelWarn();
+    _sesScheduleAbsolute();
+    _sesResetIdle();
+  } catch (err) {
+    if (err?.status === 401 || err?.status === 403) { _sesCancelWarn(); _adminLogout('expired'); }
+  }
+}
+
+function _adminLogout(reason) {
+  stopSessionEngine();
+  api.setToken('');
+  if (reason === 'idle') showToast('Сесію завершено через бездіяльність.', 'warning');
+  else if (reason === 'expired') showToast('Термін дії сесії вичерпано. Увійдіть повторно.', 'warning');
+  showAuth();
+}
+
+function startSessionEngine() {
+  stopSessionEngine();
+  if (!api.token) return;
+  _sesScheduleAbsolute();
+  _sesResetIdle();
+}
+
+function stopSessionEngine() {
+  clearTimeout(_sesIdleTimer);
+  clearTimeout(_sesAbsTimer);
+  _sesCancelWarn();
+  _sesIdleTimer = null;
+  _sesAbsTimer  = null;
+}
+
+['click', 'keydown', 'touchstart', 'mousemove'].forEach(evt => {
+  document.addEventListener(evt, () => { if (api.token) _sesResetIdle(); }, { passive: true });
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && api.token) _sesExtend();
+});
+
+window.addEventListener('online', () => { if (api.token) _sesExtend(); });
+
+document.getElementById('sessionWarnExtend')?.addEventListener('click', () => {
+  _sesLastExtend = 0;
+  _sesExtend();
+});
+document.getElementById('sessionWarnLogout')?.addEventListener('click', () => {
+  _sesCancelWarn();
+  api.logout().catch(() => {});
+  api.setToken('');
+  showAuth();
 });
 
 /* ══════════════════════════════════════════════

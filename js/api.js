@@ -161,6 +161,33 @@ class AdminAPI {
   }
   complianceGetUser(userId) { return this.get(`/api/admin/compliance/users/${userId}`); }
   complianceUpdateUser(userId, data) { return this.patch(`/api/admin/compliance/users/${userId}`, data); }
+
+  // ── Accounts ──
+  listAccounts(params = {}) {
+    const q = new URLSearchParams({ limit: 200, ...params }).toString();
+    return this.get(`/api/admin/users?${q}`);
+  }
+  integrityCheckAll() { return this.get('/api/admin/payments/integrity-check'); }
+  integrityCheckAccount(accountId) {
+    return this.get(`/api/admin/payments/integrity-check/${accountId}`);
+  }
+
+  // ── Reports ──
+  getUserReport(userId) {
+    return Promise.all([
+      this.getUser(userId),
+      this.getUserTransactions(userId, 100),
+      this.complianceGetUser(userId).catch(() => null),
+    ]);
+  }
+  getGlobalReport(params = {}) {
+    const q = new URLSearchParams({ limit: 2000, ...params }).toString();
+    return this.get(`/api/admin/transactions?${q}`);
+  }
+  getStatements(params = {}) {
+    const q = new URLSearchParams(params).toString();
+    return this.get(`/api/admin/payments/statements${q ? '?' + q : ''}`);
+  }
 }
 
 window.api = new AdminAPI();
