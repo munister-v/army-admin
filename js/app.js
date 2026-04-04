@@ -4137,6 +4137,78 @@ const DOC_TEMPLATES = {
   },
 };
 
+/* ── Recipients selection ── */
+const _docSelectedClients = new Set(); // { id, name }
+let _docAllClients = [];
+
+document.querySelectorAll('input[name="docRecipient"]').forEach(r => {
+  r.addEventListener('change', function() {
+    const wrap = document.getElementById('docClientSearchWrap');
+    if (this.value === 'select') {
+      wrap?.classList.remove('hidden');
+      if (!_docAllClients.length) _loadAllClients();
+    } else {
+      wrap?.classList.add('hidden');
+    }
+  });
+});
+
+async function _loadAllClients() {
+  try {
+    const res = await api.listUsers({ limit: 500 });
+    _docAllClients = (Array.isArray(res) ? res : (res.data || []));
+    _renderDocClientList(_docAllClients);
+  } catch(e) { console.warn('clients:', e.message); }
+}
+
+function searchDocClients() {
+  const q = (document.getElementById('docClientSearch')?.value || '').toLowerCase().trim();
+  const filtered = q
+    ? _docAllClients.filter(u => (u.full_name||'').toLowerCase().includes(q) || (u.phone||'').includes(q) || (u.email||'').toLowerCase().includes(q))
+    : _docAllClients;
+  _renderDocClientList(filtered);
+}
+
+function _renderDocClientList(users) {
+  const list = document.getElementById('docClientPickList');
+  if (!list) return;
+  if (!users.length) { list.innerHTML = '<div style="padding:8px;opacity:.5">Не знайдено</div>'; return; }
+  list.innerHTML = users.map(u => `
+    <label style="display:flex;align-items:center;gap:8px;padding:5px 4px;cursor:pointer;border-radius:5px">
+      <input type="checkbox" value="${u.id}" ${_docSelectedClients.has(u.id) ? 'checked' : ''}
+        onchange="_docClientToggle(${u.id}, ${JSON.stringify(escHtml(u.full_name || u.phone || '#'+u.id))}, this.checked)">
+      <span>${escHtml(u.full_name || '—')} <span style="opacity:.45;font-size:.8rem">${escHtml(u.phone||'')} #${u.id}</span></span>
+    </label>`).join('');
+}
+
+function _docClientToggle(id, name, checked) {
+  if (checked) _docSelectedClients.add(id);
+  else _docSelectedClients.delete(id);
+  _updateSelectedDisplay();
+}
+
+function _updateSelectedDisplay() {
+  const el = document.getElementById('docSelectedClientsDisplay');
+  if (!el) return;
+  const count = _docSelectedClients.size;
+  el.textContent = count ? `Вибрано: ${count} клієнт(ів)` : 'Нікого не вибрано';
+}
+
+function _getDocRecipients() {
+  const mode = document.querySelector('input[name="docRecipient"]:checked')?.value || 'all';
+  if (mode === 'all') return { mode: 'all', user_ids: [] };
+  return { mode: 'select', user_ids: [..._docSelectedClients] };
+}
+
+function _resetDocRecipients() {
+  _docSelectedClients.clear();
+  document.querySelectorAll('input[name="docRecipient"]').forEach(r => { r.checked = r.value === 'all'; });
+  document.getElementById('docClientSearchWrap')?.classList.add('hidden');
+  document.getElementById('docClientSearch') && (document.getElementById('docClientSearch').value = '');
+  document.getElementById('docClientPickList') && (document.getElementById('docClientPickList').innerHTML = '');
+  _updateSelectedDisplay();
+}
+
 /* ── Doc HTML helpers ── */
 function esc(s) { return escHtml(s || ''); }
 
@@ -4401,10 +4473,15 @@ function renderDocRegistry() {
       : `<span class="badge badge-pending" style="font-size:.75rem">Чернетка</span>`;
     const signBtn = d.status !== 'signed'
       ? `<button class="btn-table" onclick="docSignFromRegistry('${d.id}')">Підписати</button>` : '';
+    const rec = d.recipients;
+    const recLabel = !rec || rec.mode === 'all'
+      ? '<span style="opacity:.5;font-size:.78rem">Всі клієнти</span>'
+      : `<span style="font-size:.78rem">${rec.user_ids?.length || 0} клієнт(ів)</span>`;
     return `<tr>
       <td style="font-family:monospace;font-size:.78rem">${esc(d.id)}</td>
       <td>${esc(DOC_TYPE_LABELS[d.type] || d.type)}</td>
       <td>${esc(d.title)}</td>
+      <td>${recLabel}</td>
       <td>${statusBadge}</td>
       <td>${fmt(d.created_at)}</td>
       <td style="font-size:.8rem;color:var(--text-muted)">${esc(d.signature?.signer || '—')}</td>
@@ -4426,6 +4503,7 @@ document.getElementById('docTemplateSelect')?.addEventListener('change', functio
   const type = this.value;
   currentDocType = type;
   currentDocFields = {};
+  _resetDocRecipients();
   const form = document.getElementById('docFieldsForm');
   const grid = document.getElementById('docFieldsGrid');
   if (!type) { form?.classList.add('hidden'); return; }
@@ -4507,6 +4585,7 @@ function saveDoc(type, fields, sig) {
   const seq  = docsNextId();
   const id   = `DOC-${String(seq).padStart(3,'0')}`;
   const docs = docsLoad();
+  const recipients = _getDocRecipients();
   docs.push({
     id, seq, type,
     title: docAutoTitle(type, fields),
@@ -4514,8 +4593,10 @@ function saveDoc(type, fields, sig) {
     created_at: new Date().toISOString(),
     fields,
     signature: sig || null,
+    recipients,
   });
   docsSave(docs);
+  _resetDocRecipients();
   return id;
 }
 

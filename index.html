@@ -1428,7 +1428,7 @@
         <div class="table-wrap">
           <table class="data-table">
             <thead><tr>
-              <th>№</th><th>Тип</th><th>Назва</th><th>Статус</th><th>Дата</th><th>Підписант</th><th>Дії</th>
+              <th>№</th><th>Тип</th><th>Назва</th><th>Для кого</th><th>Статус</th><th>Дата</th><th>Підписант</th><th>Дії</th>
             </tr></thead>
             <tbody id="docRegistryBody"></tbody>
           </table>
@@ -1453,6 +1453,28 @@
         </div>
         <div id="docFieldsForm" class="doc-fields-form hidden">
           <div id="docFieldsGrid" class="doc-fields-grid"></div>
+
+          <!-- Recipients -->
+          <div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(0,0,0,.08)">
+            <div style="font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;opacity:.55;margin-bottom:12px">Для кого</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:.9rem">
+                <input type="radio" name="docRecipient" value="all" checked> Всі клієнти
+              </label>
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:.9rem">
+                <input type="radio" name="docRecipient" value="select"> Обрані клієнти
+              </label>
+            </div>
+            <div id="docClientSearchWrap" class="hidden">
+              <div style="display:flex;gap:8px;margin-bottom:8px">
+                <input type="search" id="docClientSearch" class="filter-input" placeholder="Пошук за ім'ям або телефоном…" style="flex:1">
+                <button class="btn-secondary" onclick="searchDocClients()" style="white-space:nowrap">Знайти</button>
+              </div>
+              <div id="docClientPickList" style="max-height:180px;overflow-y:auto;border:1px solid rgba(0,0,0,.1);border-radius:8px;padding:6px;margin-bottom:8px;font-size:.88rem"></div>
+              <div id="docSelectedClientsDisplay" style="font-size:.82rem;opacity:.6;min-height:18px"></div>
+            </div>
+          </div>
+
           <div id="docFormMsg" class="form-msg hidden" style="margin-top:12px"></div>
           <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
             <button class="btn-secondary" id="docPreviewBtn">Переглянути</button>
