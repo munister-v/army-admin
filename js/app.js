@@ -4075,8 +4075,8 @@ const DOC_TEMPLATES = {
       { id:'period_from', label:'Звітний період від', type:'date' },
       { id:'period_to', label:'Звітний період до', type:'date' },
       { id:'payout_type', label:'Тип виплат', type:'text', placeholder:'Виплати' },
-      { id:'total_amount', label:'Загальна сума (грн)', type:'number' },
-      { id:'total_count', label:'Кількість одержувачів', type:'number' },
+      { id:'total_amount', label:'Загальна сума (грн)', type:'number', step:'0.01', min:'0', readonly:true },
+      { id:'total_count', label:'Кількість одержувачів', type:'number', step:'1', min:'0', readonly:true },
       { id:'responsible', label:'Відповідальний (ПІБ, посада)', type:'text' },
       { id:'commander', label:'Керівник (ПІБ, посада)', type:'text' },
     ],
@@ -4636,7 +4636,7 @@ document.getElementById('docTemplateSelect')?.addEventListener('change', functio
     return `<div class="field-group"><label>${esc(f.label)}</label>
       <input type="${f.type==='number'?'number':'text'}" class="filter-input doc-field" id="df_${f.id}"
         placeholder="${esc(f.placeholder||'')}" value="${esc(val)}" ${f.type==='date'?`type="date"`:''}
-        ${f.type==='number'?'step="0.01" min="0"':''}/></div>`;
+        ${f.type==='number'?`step="${f.step ?? '0.01'}" min="${f.min ?? '0'}"`:''} ${f.readonly?'readonly':''}/></div>`;
   }).join('');
   // Patch date inputs
   tpl.fields.filter(f => f.type === 'date').forEach(f => {
