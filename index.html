@@ -1388,11 +1388,24 @@
         </div>
       </div>
 
+      <!-- Workflow hint -->
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;padding:12px 16px;background:rgba(180,150,60,.08);border:1px solid rgba(180,150,60,.2);border-radius:10px;font-size:13px">
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,255,255,.07);border-radius:100px"><strong>1</strong> Згенеруйте ключ підпису</span>
+          <span style="opacity:.4">→</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,255,255,.07);border-radius:100px"><strong>2</strong> Створіть документ</span>
+          <span style="opacity:.4">→</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,255,255,.07);border-radius:100px"><strong>3</strong> Підпишіть і збережіть</span>
+          <span style="opacity:.4">→</span>
+          <span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(255,255,255,.07);border-radius:100px"><strong>4</strong> Перегляньте в реєстрі</span>
+        </div>
+      </div>
+
       <div class="modal-tabs fin-tabs" style="margin-bottom:0">
         <button class="modal-tab active" data-doc-tab="registry">Реєстр</button>
         <button class="modal-tab" data-doc-tab="create">Новий документ</button>
         <button class="modal-tab" data-doc-tab="key">Ключ підпису</button>
-        <button class="modal-tab" data-doc-tab="verify">Перевірка</button>
+        <button class="modal-tab" data-doc-tab="verify">Перевірка підпису</button>
       </div>
 
       <!-- ── Tab: Registry ── -->
@@ -1425,6 +1438,9 @@
 
       <!-- ── Tab: Create ── -->
       <div class="fin-tab-content hidden" id="doc-tab-create" style="margin-top:16px">
+        <div id="docNoKeyHint" class="hidden" style="display:flex;gap:10px;align-items:center;margin-bottom:16px;padding:12px 16px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:10px;font-size:13px">
+          ⚠️ Ключ підпису не згенеровано. Спочатку перейдіть у вкладку <button onclick="docSwitchTab('key');document.querySelector('[data-doc-tab=key]').click()" style="background:none;border:none;color:inherit;text-decoration:underline;cursor:pointer;font-size:13px;padding:0">«Ключ підпису»</button> і натисніть «Згенерувати новий ключ».
+        </div>
         <div class="field-group" style="max-width:340px;margin-bottom:20px">
           <label>Шаблон документа</label>
           <select id="docTemplateSelect" class="filter-select">

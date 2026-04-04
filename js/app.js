@@ -23,7 +23,7 @@ function badge(cls, label) {
 }
 
 function roleBadge(role) {
-  const map = { soldier: 'Солдат', operator: 'Оператор', admin: 'Адмін', platform_admin: 'Plt Admin' };
+  const map = { soldier: 'Клієнт', operator: 'Оператор', admin: 'Адмін', platform_admin: 'Plt Admin' };
   return badge(role, map[role] || role);
 }
 
@@ -391,7 +391,7 @@ async function loadDashboard() {
       </div>
     `;
 
-    const roleNames = { soldier: 'Солдат', operator: 'Оператор', admin: 'Адмін', platform_admin: 'Platform Admin' };
+    const roleNames = { soldier: 'Клієнт', operator: 'Оператор', admin: 'Адмін', platform_admin: 'Platform Admin' };
     document.getElementById('rolesGrid').innerHTML = (d.by_role || []).map(r =>
       `<div class="role-badge">${roleNames[r.role] || r.role} <b>${r.cnt}</b></div>`
     ).join('');
@@ -3999,28 +3999,28 @@ const DOC_TEMPLATES = {
       { id:'doc_number', label:'Номер наказу', type:'text', placeholder:'001' },
       { id:'date', label:'Дата', type:'date' },
       { id:'city', label:'Місто', type:'text', placeholder:'Київ' },
-      { id:'unit', label:'Підрозділ', type:'text', placeholder:'В/ч А0000' },
+      { id:'unit', label:'Організація / відділ', type:'text', placeholder:'ТОВ "Назва" / Відділ' },
       { id:'recipient', label:'Отримувач (ПІБ)', type:'text' },
-      { id:'recipient_rank', label:'Звання / посада', type:'text', placeholder:'старший солдат' },
+      { id:'recipient_rank', label:'Посада', type:'text', placeholder:'Менеджер' },
       { id:'amount', label:'Сума (грн)', type:'number', placeholder:'0.00' },
       { id:'account', label:'Рахунок IBAN', type:'text', placeholder:'UA00000000000000000000000000' },
-      { id:'purpose', label:'Призначення виплати', type:'text', placeholder:'Бойова виплата' },
-      { id:'basis', label:'Підстава', type:'text', placeholder:'Наказ МО України від ...' },
-      { id:'commander', label:'Командир (ПІБ, звання)', type:'text' },
+      { id:'purpose', label:'Призначення виплати', type:'text', placeholder:'Виплата' },
+      { id:'basis', label:'Підстава', type:'text', placeholder:'Розпорядження від ...' },
+      { id:'commander', label:'Керівник (ПІБ, посада)', type:'text' },
     ],
     renderHtml(f, sig) {
       return docHtmlWrap(`
         <div class="doc-header-line">Наказ № ${esc(f.doc_number)} від ${fmtDocDate(f.date)} р., ${esc(f.city)}</div>
         <h1 class="doc-title">НАКАЗ</h1>
-        <div class="doc-subtitle">Про нарахування грошового забезпечення</div>
+        <div class="doc-subtitle">Про нарахування грошових коштів</div>
         <div class="doc-unit">${esc(f.unit)}</div>
 
         <div class="doc-body">
-          <p>На підставі ${esc(f.basis)}, відповідно до встановленого порядку виплати грошового забезпечення особовому складу,</p>
+          <p>На підставі ${esc(f.basis)}, відповідно до встановленого порядку виплати грошових коштів,</p>
           <p style="text-align:center;font-weight:700;margin:18px 0">НАКАЗУЮ:</p>
           <p>1. Здійснити нарахування грошових коштів у розмірі <strong>${fmtDocMoney(f.amount)} (${numToWords(f.amount)} гривень)</strong> на рахунок:</p>
           <table class="doc-inner-table">
-            <tr><td>Отримувач:</td><td><strong>${esc(f.recipient)}</strong>, ${esc(f.recipient_rank)}</td></tr>
+            <tr><td>Отримувач:</td><td><strong>${esc(f.recipient)}</strong>${f.recipient_rank ? ', ' + esc(f.recipient_rank) : ''}</td></tr>
             <tr><td>Рахунок:</td><td><code>${esc(f.account)}</code></td></tr>
             <tr><td>Призначення:</td><td>${esc(f.purpose)}</td></tr>
           </table>
@@ -4036,9 +4036,9 @@ const DOC_TEMPLATES = {
       { id:'cert_number', label:'Номер довідки', type:'text', placeholder:'Д-001' },
       { id:'date', label:'Дата видачі', type:'date' },
       { id:'city', label:'Місто', type:'text', placeholder:'Київ' },
-      { id:'unit', label:'Підрозділ / установа', type:'text', placeholder:'В/ч А0000' },
+      { id:'unit', label:'Організація / установа', type:'text', placeholder:'ТОВ "Назва" / Відділ' },
       { id:'recipient', label:'Кому видано (ПІБ)', type:'text' },
-      { id:'recipient_rank', label:'Звання / посада', type:'text' },
+      { id:'recipient_rank', label:'Посада', type:'text' },
       { id:'account_number', label:'Номер рахунку', type:'text' },
       { id:'balance', label:'Залишок (грн)', type:'number', placeholder:'0.00' },
       { id:'kyc_status', label:'Статус верифікації', type:'text', placeholder:'Верифіковано' },
@@ -4052,7 +4052,7 @@ const DOC_TEMPLATES = {
         <div class="doc-subtitle">Про стан рахунку у платіжній системі Army Bank</div>
         <div class="doc-unit">${esc(f.unit)}</div>
         <div class="doc-body">
-          <p>Цим підтверджується, що <strong>${esc(f.recipient)}</strong>, ${esc(f.recipient_rank)}, є власником рахунку в системі Army Bank зі наступними характеристиками:</p>
+          <p>Цим підтверджується, що <strong>${esc(f.recipient)}</strong>${f.recipient_rank ? ', ' + esc(f.recipient_rank) : ''}, є власником рахунку в системі Army Bank зі наступними характеристиками:</p>
           <table class="doc-inner-table">
             <tr><td>Номер рахунку:</td><td><code>${esc(f.account_number)}</code></td></tr>
             <tr><td>Залишок на дату видачі:</td><td><strong>${fmtDocMoney(f.balance)} грн</strong></td></tr>
@@ -4071,20 +4071,20 @@ const DOC_TEMPLATES = {
       { id:'reg_number', label:'Номер реєстру', type:'text', placeholder:'Р-001' },
       { id:'date', label:'Дата складання', type:'date' },
       { id:'city', label:'Місто', type:'text', placeholder:'Київ' },
-      { id:'unit', label:'Підрозділ', type:'text', placeholder:'В/ч А0000' },
+      { id:'unit', label:'Організація / відділ', type:'text', placeholder:'ТОВ "Назва" / Відділ' },
       { id:'period_from', label:'Звітний період від', type:'date' },
       { id:'period_to', label:'Звітний період до', type:'date' },
-      { id:'payout_type', label:'Тип виплат', type:'text', placeholder:'Бойові виплати' },
+      { id:'payout_type', label:'Тип виплат', type:'text', placeholder:'Виплати' },
       { id:'total_amount', label:'Загальна сума (грн)', type:'number' },
       { id:'total_count', label:'Кількість одержувачів', type:'number' },
       { id:'responsible', label:'Відповідальний (ПІБ, посада)', type:'text' },
-      { id:'commander', label:'Командир (ПІБ, звання)', type:'text' },
+      { id:'commander', label:'Керівник (ПІБ, посада)', type:'text' },
     ],
     renderHtml(f, sig) {
       return docHtmlWrap(`
         <div class="doc-header-line">Реєстр № ${esc(f.reg_number)} від ${fmtDocDate(f.date)} р., ${esc(f.city)}</div>
         <h1 class="doc-title">ЗВЕДЕНИЙ РЕЄСТР</h1>
-        <div class="doc-subtitle">Виплат грошового забезпечення особовому складу</div>
+        <div class="doc-subtitle">Виплат грошових коштів</div>
         <div class="doc-unit">${esc(f.unit)}</div>
         <div class="doc-body">
           <table class="doc-inner-table">
@@ -4094,7 +4094,7 @@ const DOC_TEMPLATES = {
             <tr><td>Загальна сума:</td><td><strong>${fmtDocMoney(f.total_amount)} грн</strong></td></tr>
           </table>
           <p>Зведений реєстр складено на підставі даних платіжної системи Army Bank. Відповідальний за складання: ${esc(f.responsible)}.</p>
-          <p>Реєстр підлягає зберіганню у відповідності до вимог документообігу підрозділу.</p>
+          <p>Реєстр підлягає зберіганню у відповідності до вимог документообігу організації.</p>
         </div>
         ${docSignatureBlock(f.commander, sig)}
       `, `Реєстр №${f.reg_number}`, sig);
@@ -4106,7 +4106,7 @@ const DOC_TEMPLATES = {
       { id:'act_number', label:'Номер акту', type:'text', placeholder:'А-001' },
       { id:'date', label:'Дата', type:'date' },
       { id:'city', label:'Місто', type:'text', placeholder:'Київ' },
-      { id:'unit', label:'Підрозділ', type:'text', placeholder:'В/ч А0000' },
+      { id:'unit', label:'Організація / відділ', type:'text', placeholder:'ТОВ "Назва" / Відділ' },
       { id:'subject', label:'Суб\'єкт перевірки (ПІБ)', type:'text' },
       { id:'subject_id', label:'ID користувача системи', type:'text' },
       { id:'kyc_status', label:'KYC статус', type:'text', placeholder:'verified' },
@@ -4346,9 +4346,21 @@ let currentDocType   = '';
 let previewDocId     = null;
 
 function loadDocumentsPage() {
-  docSwitchTab('registry');
-  renderDocRegistry();
-  updateDocKeyStatus();
+  updateDocKeyStatus().then(() => {
+    const hasKey = !!localStorage.getItem(SIG_PRIV_KEY);
+    if (!hasKey) {
+      docSwitchTab('key');
+    } else {
+      docSwitchTab('registry');
+      renderDocRegistry();
+    }
+  });
+}
+
+function docUpdateNoKeyHint() {
+  const hasKey = !!localStorage.getItem(SIG_PRIV_KEY);
+  const hint = document.getElementById('docNoKeyHint');
+  if (hint) hint.classList.toggle('hidden', hasKey);
 }
 
 function docSwitchTab(tab) {
@@ -4361,7 +4373,11 @@ function docSwitchTab(tab) {
   });
 }
 document.querySelectorAll('[data-doc-tab]').forEach(btn => {
-  btn.addEventListener('click', () => docSwitchTab(btn.dataset.docTab));
+  btn.addEventListener('click', () => {
+    docSwitchTab(btn.dataset.docTab);
+    if (btn.dataset.docTab === 'create') docUpdateNoKeyHint();
+    if (btn.dataset.docTab === 'registry') renderDocRegistry();
+  });
 });
 
 /* ── Registry ── */
@@ -4632,6 +4648,7 @@ document.getElementById('genKeyBtn')?.addEventListener('click', async () => {
   try {
     await cryptoGenerateKeyPair();
     await updateDocKeyStatus();
+    docUpdateNoKeyHint();
     msg.textContent = 'Новий ключ ECDSA P-256 успішно згенеровано і збережено.';
     msg.className = 'form-msg success';
     msg.classList.remove('hidden');
