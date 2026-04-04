@@ -4093,8 +4093,10 @@ const DOC_TEMPLATES = {
             <tr><td>Кількість одержувачів:</td><td><strong>${esc(f.total_count)} осіб</strong></td></tr>
             <tr><td>Загальна сума:</td><td><strong>${fmtDocMoney(f.total_amount)} грн</strong></td></tr>
           </table>
+          ${buildPayoutRegisterRowsHtml(f.register_items)}
           <p>Зведений реєстр складено на підставі даних платіжної системи Army Bank. Відповідальний за складання: ${esc(f.responsible)}.</p>
           <p>Реєстр підлягає зберіганню у відповідності до вимог документообігу організації.</p>
+          ${f.register_generated_at ? '<p style="color:#666;font-size:10pt">Автозаповнення виконано: ' + esc(fmt(f.register_generated_at)) + '</p>' : ''}
         </div>
         ${docSignatureBlock(f.commander, sig)}
       `, `Реєстр №${f.reg_number}`, sig);
@@ -4207,6 +4209,120 @@ function _resetDocRecipients() {
   document.getElementById('docClientSearch') && (document.getElementById('docClientSearch').value = '');
   document.getElementById('docClientPickList') && (document.getElementById('docClientPickList').innerHTML = '');
   _updateSelectedDisplay();
+}
+
+function buildPayoutRegisterRowsHtml(itemsRaw) {
+  const items = Array.isArray(itemsRaw) ? itemsRaw : [];
+  if (!items.length) {
+    return "<p style=\"margin-top:14px;color:#8a6d3b\">За вибраний період виплат не знайдено.</p>";
+  }
+  let html = "<p style=\"margin-top:16px;font-weight:600\">Деталізація виплат (" + items.length + "):</p>";
+  html += "<table class=\"doc-inner-table\"><tr>" +
+    "<td style=\"width:6%\">№</td>" +
+    "<td style=\"width:16%\">Дата</td>" +
+    "<td style=\"width:24%\">Одержувач</td>" +
+    "<td style=\"width:18%\">Рахунок</td>" +
+    "<td style=\"width:24%\">Тип / опис</td>" +
+    "<td style=\"width:12%\">Сума, грн</td>" +
+    "</tr>";
+  items.forEach((row, idx) => {
+    html += "<tr>" +
+      "<td>" + (idx + 1) + "</td>" +
+      "<td>" + esc(row?.date || "—") + "</td>" +
+      "<td>" + esc(row?.user_name || "—") + "</td>" +
+      "<td><code>" + esc(row?.account || "—") + "</code></td>" +
+      "<td>" + esc(row?.description || row?.tx_type || "Виплата") + "</td>" +
+      "<td><strong>" + fmtDocMoney(row?.amount) + "</strong></td>" +
+      "</tr>";
+  });
+  html += "</table>";
+  return html;
+}
+
+function fmtDocDateShort(d) {
+  if (!d) return "—";
+  try {
+    return new Date(d).toLocaleDateString("uk-UA");
+  } catch {
+    return d;
+  }
+}
+
+function toIsoDateOrEmpty(value) {
+  if (!value) return "";
+  try {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return "";
+  }
+}
+
+async function loadPayoutRowsForRegister(fromDate, toDate) {
+  const LIMIT = 500;
+  const MAX_ROWS = 2000;
+  let offset = 0;
+  let total = Infinity;
+  const all = [];
+
+  while (offset < total && all.length < MAX_ROWS) {
+    const res = await api.listPayouts({
+      from_date: fromDate,
+      to_date: toDate,
+      limit: LIMIT,
+      offset,
+    });
+    const rows = res?.data || [];
+    total = Number.isFinite(res?.total) ? res.total : (offset + rows.length);
+    if (!rows.length) break;
+    all.push(...rows);
+    offset += LIMIT;
+    if (rows.length < LIMIT) break;
+  }
+
+  return all;
+}
+
+async function enrichDocFields(type, rawFields) {
+  const fields = { ...(rawFields || {}) };
+  if (type !== "payout_register") return fields;
+
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+  const monthStartIso = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+  const fromDate = toIsoDateOrEmpty(fields.period_from) || monthStartIso;
+  const toDate = toIsoDateOrEmpty(fields.period_to) || todayIso;
+
+  let rows = await loadPayoutRowsForRegister(fromDate, toDate);
+  const recipients = _getDocRecipients();
+  if (recipients.mode === "select" && recipients.user_ids?.length) {
+    const selected = new Set(recipients.user_ids.map(v => String(v)));
+    rows = rows.filter(r => selected.has(String(r.user_id)));
+  }
+
+  const normalizedRows = rows.map(r => ({
+    date: fmtDocDateShort(r.created_at),
+    user_name: r.user_name || r.full_name || ("Клієнт #" + (r.user_id || "—")),
+    account: r.related_account || r.account_number || "",
+    description: r.description || txTypeLabel(r.tx_type),
+    tx_type: r.tx_type || "payout",
+    amount: Math.abs(Number(r.amount || 0)),
+  }));
+
+  const totalAmount = normalizedRows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const uniqueRecipients = new Set(rows.map(r => String(r.user_id || "")).filter(Boolean)).size;
+
+  fields.period_from = fromDate;
+  fields.period_to = toDate;
+  fields.payout_type = fields.payout_type || "Виплати (авто з транзакцій)";
+  fields.total_amount = totalAmount.toFixed(2);
+  fields.total_count = String(uniqueRecipients || 0);
+  fields.responsible = fields.responsible || currentAdminUser?.full_name || currentAdminUser?.phone || "Адміністратор Army Bank";
+  fields.register_generated_at = new Date().toISOString();
+  fields.register_items = normalizedRows;
+
+  return fields;
 }
 
 /* ── Doc HTML helpers ── */
@@ -4549,29 +4665,45 @@ function docAutoTitle(type, fields) {
   return 'Документ';
 }
 
-document.getElementById('docPreviewBtn')?.addEventListener('click', () => {
-  const fields = collectDocFields();
-  const html = DOC_TEMPLATES[currentDocType]?.renderHtml(fields, null);
-  if (!html) return;
-  openDocPreviewHtml(html, docAutoTitle(currentDocType, fields), null);
+document.getElementById('docPreviewBtn')?.addEventListener('click', async () => {
+  const msg = document.getElementById('docFormMsg');
+  msg.classList.add('hidden');
+  try {
+    const fields = await enrichDocFields(currentDocType, collectDocFields());
+    const html = DOC_TEMPLATES[currentDocType]?.renderHtml(fields, null);
+    if (!html) return;
+    openDocPreviewHtml(html, docAutoTitle(currentDocType, fields), null);
+  } catch (err) {
+    msg.textContent = 'Не вдалося автозаповнити документ: ' + err.message;
+    msg.className = 'form-msg error';
+    msg.classList.remove('hidden');
+  }
 });
 
-document.getElementById('docSaveDraftBtn')?.addEventListener('click', () => {
-  const fields = collectDocFields();
-  const id  = saveDoc(currentDocType, fields, null);
-  showToast(`Чернетку збережено: ${id}`);
-  docSwitchTab('registry');
-  renderDocRegistry();
+document.getElementById('docSaveDraftBtn')?.addEventListener('click', async () => {
+  const msg = document.getElementById('docFormMsg');
+  msg.classList.add('hidden');
+  try {
+    const fields = await enrichDocFields(currentDocType, collectDocFields());
+    const id  = saveDoc(currentDocType, fields, null);
+    showToast('Чернетку збережено: ' + id);
+    docSwitchTab('registry');
+    renderDocRegistry();
+  } catch (err) {
+    msg.textContent = 'Не вдалося зберегти документ: ' + err.message;
+    msg.className = 'form-msg error';
+    msg.classList.remove('hidden');
+  }
 });
 
 document.getElementById('docSignSaveBtn')?.addEventListener('click', async () => {
   const msg = document.getElementById('docFormMsg');
-  const fields = collectDocFields();
   msg.classList.add('hidden');
   try {
+    const fields = await enrichDocFields(currentDocType, collectDocFields());
     const sig = await signDocFields(currentDocType, fields, currentAdminUser?.full_name || currentAdminUser?.phone || 'Admin');
     const id  = saveDoc(currentDocType, fields, sig);
-    showToast(`Підписано і збережено: ${id}`);
+    showToast('Підписано і збережено: ' + id);
     docSwitchTab('registry');
     renderDocRegistry();
   } catch(err) {
