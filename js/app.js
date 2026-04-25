@@ -107,7 +107,7 @@ const procRequestSeq = {
 const PROCESSING_ROLES = new Set(['operator', 'admin', 'platform_admin']);
 const ADMIN_ROLES = new Set(['admin', 'platform_admin']);
 const OPERATOR_BULK_ACTIONS = new Set(['assign', 'escalate', 'note']);
-const FULL_ACCESS_PAGES = ['dashboard', 'users', 'transactions', 'processing', 'payouts', 'cards', 'compliance', 'audit', 'accounts', 'balances', 'reports', 'analytics', 'documents', 'simulator'];
+const FULL_ACCESS_PAGES = ['dashboard', 'users', 'transactions', 'processing', 'payouts', 'cards', 'compliance', 'audit', 'accounts', 'balances', 'reports', 'analytics', 'documents', 'simulator', 'agent'];
 const SLA_MINUTES_BY_RISK = { critical: 15, high: 60, medium: 240, low: 720 };
 const SLA_RISK_WEIGHT = { critical: 4, high: 3, medium: 2, low: 1 };
 const SLA_PRIORITY_WEIGHT = { critical: 4, high: 3, medium: 2, normal: 1 };
@@ -264,6 +264,7 @@ function loadPage(page) {
     case 'analytics':    loadAnalyticsPage(); break;
     case 'documents':    loadDocumentsPage(); break;
     case 'simulator':    loadSimulatorPage(); break;
+    case 'agent':        initAgentPage(); break;
   }
 }
 
