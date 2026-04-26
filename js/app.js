@@ -5366,10 +5366,10 @@ const DOC_TEMPLATES = {
       return docHtmlWrap(`
         <div class="doc-header-line">Довідка № ${esc(f.cert_number)} від ${fmtDocDate(f.date)} р., ${esc(f.city)}</div>
         <h1 class="doc-title">ДОВІДКА</h1>
-        <div class="doc-subtitle">Про стан рахунку у платіжній системі Army Bank</div>
+        <div class="doc-subtitle">Про стан рахунку у платіжній системі АРМ</div>
         <div class="doc-unit">${esc(f.unit)}</div>
         <div class="doc-body">
-          <p>Цим підтверджується, що <strong>${esc(f.recipient)}</strong>${f.recipient_rank ? ', ' + esc(f.recipient_rank) : ''}, є власником рахунку в системі Army Bank зі наступними характеристиками:</p>
+          <p>Цим підтверджується, що <strong>${esc(f.recipient)}</strong>${f.recipient_rank ? ', ' + esc(f.recipient_rank) : ''}, є власником рахунку в системі АРМ зі наступними характеристиками:</p>
           <table class="doc-inner-table">
             <tr><td>Номер рахунку:</td><td><code>${esc(f.account_number)}</code></td></tr>
             <tr><td>Залишок на дату видачі:</td><td><strong>${fmtDocMoney(f.balance)} грн</strong></td></tr>
@@ -5411,7 +5411,7 @@ const DOC_TEMPLATES = {
             <tr><td>Загальна сума:</td><td><strong>${fmtDocMoney(f.total_amount)} грн</strong></td></tr>
           </table>
           ${buildPayoutRegisterRowsHtml(f.register_items)}
-          <p>Зведений реєстр складено на підставі даних платіжної системи Army Bank. Відповідальний за складання: ${esc(f.responsible)}.</p>
+          <p>Зведений реєстр складено на підставі даних платіжної системи АРМ. Відповідальний за складання: ${esc(f.responsible)}.</p>
           <p>Реєстр підлягає зберіганню у відповідності до вимог документообігу організації.</p>
           ${f.register_generated_at ? '<p style="color:#666;font-size:10pt">Автозаповнення виконано: ' + esc(fmt(f.register_generated_at)) + '</p>' : ''}
         </div>
@@ -5635,7 +5635,7 @@ async function enrichDocFields(type, rawFields) {
   fields.payout_type = fields.payout_type || "Виплати (авто з транзакцій)";
   fields.total_amount = totalAmount.toFixed(2);
   fields.total_count = String(uniqueRecipients || 0);
-  fields.responsible = fields.responsible || currentAdminUser?.full_name || currentAdminUser?.phone || "Адміністратор Army Bank";
+  fields.responsible = fields.responsible || currentAdminUser?.full_name || currentAdminUser?.phone || "Адміністратор АРМ";
   fields.register_generated_at = new Date().toISOString();
   fields.register_items = normalizedRows;
 
@@ -5710,7 +5710,7 @@ function docSignatureBlock(signer, sig) {
         </div>
         <div class="doc-cert-title-wrap">
           <div class="doc-cert-title">ЕЛЕКТРОННИЙ ЦИФРОВИЙ ПІДПИС</div>
-          <div class="doc-cert-subtitle">Army Bank Admin System · Кваліфікований підпис</div>
+          <div class="doc-cert-subtitle">АРМ Admin System · Кваліфікований підпис</div>
         </div>
         <div class="doc-cert-validity">✓&nbsp;ДІЙСНИЙ</div>
       </div>
@@ -5741,8 +5741,8 @@ function docSignatureBlock(signer, sig) {
         </div>
       </div>
       <div class="doc-cert-footer">
-        <span>Для перевірки автентичності документа використовуйте вкладку «Перевірка» в системі Army Bank Admin.</span>
-        <span class="doc-cert-watermark">ПІДПИСАНО · ARMY BANK</span>
+        <span>Для перевірки автентичності документа використовуйте вкладку «Перевірка» в системі АРМ Адмін.</span>
+        <span class="doc-cert-watermark">ПІДПИСАНО · АРМ</span>
       </div>
     </div>`;
   }
@@ -5769,7 +5769,7 @@ function docSignatureBlock(signer, sig) {
         <div class="doc-sig-unsigned-stamp"></div>
       </div>
     </div>
-    <div class="doc-sig-unsigned-hint">⚠ Документ не містить електронного підпису. Підпишіть документ у системі Army Bank Admin.</div>
+    <div class="doc-sig-unsigned-hint">⚠ Документ не містить електронного підпису. Підпишіть документ у системі АРМ Адмін.</div>
   </div>`;
 }
 
@@ -5838,7 +5838,7 @@ function docHtmlWrap(body, title, sig) {
     <line x1="30" y1="22" x2="30" y2="38" stroke="#c8a84b" stroke-width="2" stroke-linecap="round"/>
   </svg>
 </div>
-<div class="doc-org">ARMY BANK — Платіжна система збройних сил</div>
+<div class="doc-org">АРМ — Платіжна система збройних сил</div>
 ${body}
 </body></html>`;
 }
