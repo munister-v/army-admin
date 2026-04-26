@@ -28,14 +28,82 @@ function roleBadge(role) {
 }
 
 function txTypeBadge(type) {
-  const map = { payout: 'Виплата', donation: 'Донат', transfer: 'Переказ', deposit: 'Депозит', withdrawal: 'Зняття' };
+  const map = { payout: 'Виплата', donation: 'Донат', transfer: 'Переказ', deposit: 'Депозит', withdrawal: 'Зняття', exchange: 'Обмін', credit: 'Кредит', referral: 'Реферал' };
   return badge(type, map[type] || type);
 }
 
 function txTypeLabel(type) {
-  const map = { payout: 'Виплата', donation: 'Донат', transfer: 'Переказ', deposit: 'Депозит', withdrawal: 'Зняття' };
+  const map = { payout: 'Виплата', donation: 'Донат', transfer: 'Переказ', deposit: 'Депозит', withdrawal: 'Зняття', exchange: 'Обмін', credit: 'Кредит', referral: 'Реферал' };
   return map[type] || (type || '—');
 }
+
+/* Inline SVG icons for each transaction type (24×24 viewport, rendered at 20px) */
+function txTypeIcon(type) {
+  const ico = {
+    payout: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="tx-icon tx-icon--payout">
+      <circle cx="12" cy="12" r="10" stroke="#c8a84b" stroke-width="1.6"/>
+      <path d="M12 7v1.8M12 15.2V17" stroke="#c8a84b" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M9 10.2C9 9.2 10.3 8.4 12 8.4s3 .8 3 1.8-1.3 1.8-3 1.8-3 .8-3 1.8 1.3 1.8 3 1.8 3-.8 3-1.8" stroke="#c8a84b" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>`,
+    donation: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="tx-icon tx-icon--donation">
+      <path d="M12 21C12 21 3 14.5 3 8.5a5 5 0 0 1 9-3 5 5 0 0 1 9 3c0 6-9 12.5-9 12.5z" stroke="#f87171" stroke-width="1.6" stroke-linejoin="round" fill="rgba(248,113,113,.12)"/>
+    </svg>`,
+    transfer: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="tx-icon tx-icon--transfer">
+      <path d="M5 8h14M5 8l3.5-3.5M5 8l3.5 3.5" stroke="#60a5fa" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M19 16H5M19 16l-3.5-3.5M19 16l-3.5 3.5" stroke="#60a5fa" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`,
+    deposit: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="tx-icon tx-icon--deposit">
+      <circle cx="12" cy="12" r="9" stroke="#4ade80" stroke-width="1.6"/>
+      <path d="M12 8v8M9 13l3 3 3-3" stroke="#4ade80" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`,
+    withdrawal: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="tx-icon tx-icon--withdrawal">
+      <circle cx="12" cy="12" r="9" stroke="#f87171" stroke-width="1.6"/>
+      <path d="M12 16V8M9 11l3-3 3 3" stroke="#f87171" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`,
+    exchange: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="tx-icon tx-icon--exchange">
+      <path d="M7 10a5 5 0 0 1 10 0" stroke="#a78bfa" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M17 14a5 5 0 0 1-10 0" stroke="#a78bfa" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M17 10l2-2-2-2M7 14l-2 2 2 2" stroke="#a78bfa" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`,
+    credit: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="tx-icon tx-icon--credit">
+      <rect x="3" y="7" width="18" height="13" rx="2" stroke="#4ade80" stroke-width="1.6"/>
+      <path d="M3 11h18" stroke="#4ade80" stroke-width="1.6"/>
+      <circle cx="8" cy="16" r="1.5" fill="#4ade80"/>
+    </svg>`,
+    referral: `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="tx-icon tx-icon--referral">
+      <circle cx="9" cy="7" r="3" stroke="#c8a84b" stroke-width="1.5"/>
+      <path d="M3 20c0-3.3 2.7-6 6-6" stroke="#c8a84b" stroke-width="1.5" stroke-linecap="round"/>
+      <path d="M16 11l2 2 4-4" stroke="#4ade80" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="18" cy="8" r="3" stroke="#c8a84b" stroke-width="1.5"/>
+    </svg>`,
+  };
+  return ico[type] || `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="tx-icon"><circle cx="12" cy="12" r="9" stroke="#6b7280" stroke-width="1.6"/><path d="M12 8v8M8 12h8" stroke="#6b7280" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+}
+
+/* Achievement badge SVG (antique Roman style) */
+function achievementBadgeSvg(id, tier) {
+  const colors = { gold: ['#c8a84b','#f0d080','#8b6914'], silver: ['#9ca3af','#d1d5db','#4b5563'], bronze: ['#b45309','#d97706','#78350f'] };
+  const [stroke, light, dark] = colors[tier] || colors.bronze;
+  const inner = {
+    defender:  `<path d="M12 6l1.5 4h4l-3.2 2.4 1.2 4L12 14l-3.5 2.4 1.2-4L6.5 10h4z" fill="${light}" stroke="${stroke}" stroke-width=".8"/>`,
+    saver:     `<circle cx="12" cy="12" r="4" fill="${light}" stroke="${stroke}" stroke-width="1"/><path d="M12 9v1M12 14v1M9.5 11.2C9.5 10.5 10.6 10 12 10s2.5.5 2.5 1.2-1.1 1.3-2.5 1.3-2.5.5-2.5 1.3 1.1 1.2 2.5 1.2 2.5-.5 2.5-1.2" stroke="${dark}" stroke-width=".9" stroke-linecap="round"/>`,
+    wealthy:   `<path d="M12 7l1 3h3l-2.4 1.8.9 3L12 13l-2.5 1.8.9-3L8 10h3z" fill="${light}" stroke="${stroke}" stroke-width=".8"/><path d="M9 6h6" stroke="${stroke}" stroke-width="1" stroke-linecap="round"/>`,
+    active:    `<path d="M12 6v3l2 2-2 2v3" stroke="${stroke}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="4" stroke="${light}" stroke-width=".8" fill="none"/>`,
+    veteran:   `<path d="M9 7h6v10l-3-2-3 2V7z" fill="${light}" stroke="${stroke}" stroke-width=".9"/><path d="M9 10h6" stroke="${dark}" stroke-width=".8" stroke-linecap="round"/>`,
+    loyal:     `<path d="M12 7c1.1 0 2 .9 2 2v4l-2 2-2-2V9c0-1.1.9-2 2-2z" fill="${light}" stroke="${stroke}" stroke-width=".9"/><circle cx="12" cy="15" r=".8" fill="${stroke}"/>`,
+    patron:    `<path d="M12 16s-5-3.5-5-7a3 3 0 0 1 5-2.24A3 3 0 0 1 17 9c0 3.5-5 7-5 7z" fill="${light}" stroke="${stroke}" stroke-width=".9"/>`,
+    verified:  `<path d="M9 12l2 2 4-4" stroke="${stroke}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="4.5" stroke="${light}" stroke-width=".9" fill="none"/>`,
+  };
+  return `<svg width="52" height="52" viewBox="0 0 24 24" fill="none" class="ach-badge ach-badge--${tier}">
+    <!-- outer ring -->
+    <circle cx="12" cy="12" r="11" stroke="${stroke}" stroke-width="1.2" fill="rgba(0,0,0,.35)" stroke-dasharray="2 1"/>
+    <!-- inner circle -->
+    <circle cx="12" cy="12" r="8.5" stroke="${light}" stroke-width=".6" fill="rgba(0,0,0,.2)"/>
+    <!-- symbol -->
+    ${inner[id] || ''}
+  </svg>`;
+}
+
 
 function showToast(msg, type = 'success') {
   const t = document.getElementById('toast');
@@ -111,7 +179,7 @@ const procRequestSeq = {
 const PROCESSING_ROLES = new Set(['operator', 'admin', 'platform_admin']);
 const ADMIN_ROLES = new Set(['admin', 'platform_admin']);
 const OPERATOR_BULK_ACTIONS = new Set(['assign', 'escalate', 'note']);
-const FULL_ACCESS_PAGES = ['dashboard', 'users', 'transactions', 'processing', 'payouts', 'cards', 'compliance', 'audit', 'accounts', 'balances', 'reports', 'analytics', 'documents', 'simulator', 'agent'];
+const FULL_ACCESS_PAGES = ['dashboard', 'users', 'transactions', 'processing', 'payouts', 'cards', 'compliance', 'audit', 'accounts', 'balances', 'reports', 'analytics', 'documents', 'simulator', 'agent', 'achievements', 'referrals'];
 const SLA_MINUTES_BY_RISK = { critical: 15, high: 60, medium: 240, low: 720 };
 const SLA_RISK_WEIGHT = { critical: 4, high: 3, medium: 2, low: 1 };
 const SLA_PRIORITY_WEIGHT = { critical: 4, high: 3, medium: 2, normal: 1 };
@@ -269,6 +337,8 @@ function loadPage(page) {
     case 'documents':    loadDocumentsPage(); break;
     case 'simulator':    loadSimulatorPage(); break;
     case 'agent':        initAgentPage(); break;
+    case 'achievements': loadAchievementsPage(); break;
+    case 'referrals':    loadReferralsPage(); break;
   }
 }
 
@@ -680,6 +750,7 @@ function switchModalTab(tab) {
   if (tab === 'balance' && modalUserId) loadModalBalanceHistory(modalUserId);
   if (tab === 'compliance' && modalUserId) loadModalCompliance(modalUserId);
   if (tab === 'actions' && modalUserId) loadModalNotes(modalUserId);
+  if (tab === 'goals' && modalUserId) loadModalGoals(modalUserId);
 }
 
 async function openUserModal(userId) {
@@ -1063,21 +1134,30 @@ async function loadTransactions(offset = 0) {
 
     document.getElementById('txBody').innerHTML = rows.map(tx => {
       const isHighValue = highValueThreshold > 0 && Number(tx.amount || 0) >= highValueThreshold;
+      const isIn = tx.direction === 'in';
+      const dirArrow = isIn
+        ? `<span class="tx-dir-in" title="Зарахування">↑</span>`
+        : `<span class="tx-dir-out" title="Списання">↓</span>`;
       return `
-      <tr class="${isHighValue ? 'tx-high-value' : ''}">
-        <td style="font-size:.78rem;color:var(--text-muted)">#${tx.id}</td>
-        <td style="font-size:.8rem;color:var(--text-muted);white-space:nowrap">${fmt(tx.created_at)}</td>
-        <td style="font-size:.82rem">${escHtml(tx.full_name || '—')}</td>
-        <td><code style="font-size:.78rem">${escHtml(tx.account_number || '—')}</code></td>
+      <tr class="tx-row${isHighValue ? ' tx-high-value' : ''}">
+        <td class="tx-type-cell">${txTypeIcon(tx.tx_type)}</td>
+        <td>
+          <div style="font-size:.72rem;color:var(--text-muted)">#${tx.id}</div>
+          <div style="font-size:.78rem;color:var(--text-muted);white-space:nowrap">${fmt(tx.created_at)}</div>
+        </td>
+        <td style="font-size:.83rem;font-weight:500">${escHtml(tx.full_name || '—')}</td>
+        <td><code class="tx-acc-code">${escHtml(tx.account_number || '—')}</code></td>
         <td>${txTypeBadge(tx.tx_type)}</td>
-        <td>${badge(tx.direction === 'in' ? 'in' : 'out', tx.direction === 'in' ? '↑ Зарах.' : '↓ Спис.')}</td>
-        <td class="${tx.direction === 'in' ? 'amount-in' : 'amount-out'}">${fmtMoney(tx.amount)}</td>
+        <td style="text-align:center">${dirArrow}</td>
+        <td class="tx-amount-cell ${isIn ? 'amount-in' : 'amount-out'}">
+          <span class="tx-amount-sign">${isIn ? '+' : '−'}</span>${fmtMoney(tx.amount)}
+        </td>
         <td class="tx-desc-cell" title="${escHtml(tx.description || '—')}">${escHtml(tx.description || '—')}</td>
         <td>
           <div class="tx-row-actions">
-            <button class="tx-mini-btn" onclick="openTxDetailById(${tx.id})">Деталі</button>
-            <button class="tx-mini-btn" onclick="openUserModal(${tx.user_id})">User</button>
-            <button class="tx-mini-btn" title="Копіювати ID" onclick="copyTxId(${tx.id},this)">📋</button>
+            <button class="tx-mini-btn" onclick="openTxDetailById(${tx.id})">↗</button>
+            <button class="tx-mini-btn" onclick="openUserModal(${tx.user_id})">👤</button>
+            <button class="tx-mini-btn" title="Копіювати ID" onclick="copyTxId(${tx.id},this)">⎘</button>
           </div>
         </td>
       </tr>
@@ -6581,6 +6661,229 @@ document.getElementById('sessionWarnLogout')?.addEventListener('click', () => {
   api.logout().catch(() => {});
   api.setToken('');
   showAuth();
+});
+
+/* ══════════════════════════════════════════════
+   ACHIEVEMENTS PAGE
+══════════════════════════════════════════════ */
+const ACHIEVEMENT_DEFS = [
+  { id: 'defender', label: 'Захисник', desc: 'Отримав бойову виплату',     tier: 'gold',   check: (u, txs) => txs.some(t => t.tx_type === 'payout') },
+  { id: 'wealthy',  label: 'Заможний', desc: 'Баланс ≥ 10 000 ₴',          tier: 'gold',   check: (u) => (u.account?.balance || 0) >= 10000 },
+  { id: 'saver',    label: 'Ощадний',  desc: 'Позитивний баланс',           tier: 'silver', check: (u) => (u.account?.balance || 0) > 0 },
+  { id: 'veteran',  label: 'Ветеран',  desc: '50+ транзакцій',              tier: 'gold',   check: (u, txs) => txs.length >= 50 },
+  { id: 'active',   label: 'Активний', desc: '10+ транзакцій',              tier: 'silver', check: (u, txs) => txs.length >= 10 },
+  { id: 'loyal',    label: 'Вірний',   desc: '6+ місяців у системі',        tier: 'silver', check: (u) => (Date.now() - new Date(u.created_at)) > 180 * 86400000 },
+  { id: 'patron',   label: 'Меценат',  desc: 'Здійснив донат',              tier: 'bronze', check: (u, txs) => txs.some(t => t.tx_type === 'donation') },
+  { id: 'verified', label: 'Верифік.', desc: 'KYC успішно пройдено',        tier: 'gold',   check: (u) => u.kyc_status === 'verified' },
+];
+
+function computeUserAchievements(user, txs = []) {
+  return ACHIEVEMENT_DEFS.filter(a => a.check(user, txs));
+}
+
+async function loadAchievementsPage() {
+  const body = document.getElementById('achievementsBody');
+  const stats = document.getElementById('achievementsStats');
+  if (!body) return;
+  body.innerHTML = '<tr><td colspan="5" class="empty-state">Завантаження…</td></tr>';
+  try {
+    const res   = await api.listAccounts({ limit: 100 });
+    const users = res.users || res.data || [];
+
+    // aggregate badge counts
+    const tally = {};
+    ACHIEVEMENT_DEFS.forEach(a => { tally[a.id] = 0; });
+    const userBadges = users.map(u => {
+      const badges = computeUserAchievements(u);
+      badges.forEach(b => { tally[b.id] = (tally[b.id] || 0) + 1; });
+      return { user: u, badges };
+    }).sort((a, b) => b.badges.length - a.badges.length);
+
+    if (stats) {
+      stats.innerHTML = ACHIEVEMENT_DEFS.map(a => `
+        <div class="ach-stat-card">
+          ${achievementBadgeSvg(a.id, a.tier)}
+          <div class="ach-stat-label">${a.label}</div>
+          <div class="ach-stat-count">${tally[a.id] || 0}</div>
+        </div>
+      `).join('');
+    }
+
+    body.innerHTML = userBadges.slice(0, 50).map((entry, i) => {
+      const u = entry.user;
+      const bs = entry.badges;
+      if (!bs.length) return '';
+      return `<tr>
+        <td style="font-size:.78rem;color:var(--gold);font-weight:700">#${i + 1}</td>
+        <td>
+          <div style="font-weight:600;font-size:.85rem">${escHtml(u.full_name || '—')}</div>
+          <div style="font-size:.75rem;color:var(--text-muted)">${escHtml(u.phone || u.email || '')}</div>
+        </td>
+        <td>${fmtMoney(u.account?.balance || 0)}</td>
+        <td>
+          <div class="ach-badge-row">${bs.map(b => achievementBadgeSvg(b.id, b.tier)).join('')}</div>
+        </td>
+        <td style="font-size:.78rem;color:var(--text-muted)">${bs.map(b => b.label).join(', ')}</td>
+      </tr>`;
+    }).filter(Boolean).join('') || '<tr><td colspan="5" class="empty-state">Немає даних</td></tr>';
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="5" class="empty-state" style="color:var(--red)">${escHtml(err.message)}</td></tr>`;
+  }
+}
+document.getElementById('refreshAchievementsBtn')?.addEventListener('click', loadAchievementsPage);
+
+/* ══════════════════════════════════════════════
+   REFERRALS PAGE
+══════════════════════════════════════════════ */
+async function loadReferralsPage() {
+  const body    = document.getElementById('referralsBody');
+  const summary = document.getElementById('referralsSummary');
+  if (!body) return;
+  body.innerHTML = '<tr><td colspan="5" class="empty-state">Завантаження…</td></tr>';
+  try {
+    // Fetch transactions with referral type + all users to detect referral_code/referred_by fields
+    const [txRes, usersRes] = await Promise.all([
+      api.listTransactions({ tx_type: 'referral', limit: 200 }).catch(() => ({ data: [] })),
+      api.listAccounts({ limit: 500 }),
+    ]);
+    const txs   = txRes.data || [];
+    const users = usersRes.users || usersRes.data || [];
+
+    // Count referrals per referrer
+    const refMap = {};
+    users.forEach(u => {
+      const refId = u.referred_by || u.referrer_id;
+      if (refId) {
+        refMap[refId] = refMap[refId] || { count: 0, bonus: 0, referees: [] };
+        refMap[refId].count++;
+        refMap[refId].referees.push(u.full_name || u.phone || `#${u.id}`);
+      }
+    });
+    txs.forEach(t => {
+      const uid = t.user_id;
+      if (uid) {
+        refMap[uid] = refMap[uid] || { count: 0, bonus: 0, referees: [] };
+        refMap[uid].bonus += Math.abs(t.amount || 0);
+      }
+    });
+
+    const referrers = Object.entries(refMap)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 50);
+
+    if (summary) {
+      const totalRefs   = users.filter(u => u.referred_by || u.referrer_id).length;
+      const totalBonus  = txs.reduce((s, t) => s + Math.abs(t.amount || 0), 0);
+      const totalRefTxs = txs.length;
+      summary.innerHTML = `
+        <div class="registry-card"><div class="registry-label">Реферальних акаунтів</div><div class="registry-value gold">${totalRefs}</div></div>
+        <div class="registry-card"><div class="registry-label">Реферальних транзакцій</div><div class="registry-value">${totalRefTxs}</div></div>
+        <div class="registry-card"><div class="registry-label">Бонуси виплачено</div><div class="registry-value green">${fmtMoney(totalBonus)}</div></div>
+        <div class="registry-card"><div class="registry-label">Активних реферерів</div><div class="registry-value">${referrers.length}</div></div>
+      `;
+    }
+
+    if (!referrers.length && !txs.length) {
+      // No referral data yet — show placeholder
+      body.innerHTML = `<tr><td colspan="5" class="empty-state">
+        <div style="padding:24px 0">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" style="margin:0 auto 12px;display:block;opacity:.4">
+            <circle cx="9" cy="7" r="3" stroke="#c8a84b" stroke-width="1.5"/>
+            <path d="M3 20c0-3.3 2.7-6 6-6" stroke="#c8a84b" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M16 11l2 2 4-4" stroke="#4ade80" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="18" cy="8" r="3" stroke="#c8a84b" stroke-width="1.5"/>
+          </svg>
+          <div style="color:var(--text-muted)">Реферальних даних не знайдено.<br>
+          <span style="font-size:.8rem">API не повертає поле <code>referred_by</code> або транзакцій типу <code>referral</code></span></div>
+        </div>
+      </td></tr>`;
+      return;
+    }
+
+    body.innerHTML = referrers.map(([refId, data], i) => {
+      const refUser = users.find(u => String(u.id) === String(refId));
+      const name = refUser ? (refUser.full_name || refUser.phone || `#${refId}`) : `User #${refId}`;
+      return `<tr>
+        <td style="font-size:.78rem;color:var(--gold);font-weight:700">#${i + 1}</td>
+        <td>
+          <div style="font-weight:600;font-size:.84rem">${escHtml(name)}</div>
+          <div style="font-size:.75rem;color:var(--text-muted)">ID ${refId}</div>
+        </td>
+        <td style="font-weight:600">${data.count}</td>
+        <td class="amount-in">${fmtMoney(data.bonus)}</td>
+        <td style="font-size:.78rem;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis">${escHtml(data.referees.slice(0, 3).join(', '))}${data.referees.length > 3 ? ` +${data.referees.length - 3}` : ''}</td>
+      </tr>`;
+    }).join('');
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="5" class="empty-state" style="color:var(--red)">${escHtml(err.message)}</td></tr>`;
+  }
+}
+document.getElementById('refreshReferralsBtn')?.addEventListener('click', loadReferralsPage);
+
+/* ══════════════════════════════════════════════
+   SAVINGS GOALS (user modal)
+══════════════════════════════════════════════ */
+async function loadModalGoals(userId) {
+  const wrap    = document.getElementById('mGoalsWrap');
+  const loading = document.getElementById('mGoalsLoading');
+  if (!wrap) return;
+  loading.style.display = 'block'; wrap.style.display = 'none';
+  try {
+    const [userRes, cmpRes] = await Promise.all([
+      api.getUser(userId),
+      api.complianceGetUser(userId).catch(() => null),
+    ]);
+    loading.style.display = 'none'; wrap.style.display = 'block';
+    const balance = userRes.data?.account?.balance || 0;
+    const notes   = cmpRes?.data?.compliance?.notes || '';
+    // Parse [Goal] markers from notes
+    const goalLines = notes.split('\n').filter(l => l.startsWith('[Ціль]'));
+    const goals = goalLines.map(l => {
+      const m = l.match(/\[Ціль\] (.+?): (\d+[\d.]*) UAH - (.+)/);
+      if (!m) return null;
+      return { date: m[1], target: parseFloat(m[2]), desc: m[3] };
+    }).filter(Boolean);
+
+    document.getElementById('mGoalsCurrent').textContent = fmtMoney(balance);
+    document.getElementById('mGoalsList').innerHTML = goals.length
+      ? goals.map(g => {
+          const pct = Math.min(100, balance > 0 ? (balance / g.target * 100) : 0);
+          const done = balance >= g.target;
+          return `<div class="goal-item${done ? ' goal-done' : ''}">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="font-weight:600;font-size:.84rem">${escHtml(g.desc)}</span>
+              <span style="font-size:.8rem;color:${done ? 'var(--green)' : 'var(--gold)'}">${done ? '✓ Виконано' : fmtMoney(g.target)}</span>
+            </div>
+            <div class="goal-progress-bar">
+              <div class="goal-progress-fill" style="width:${pct.toFixed(1)}%;background:${done ? 'var(--green)' : 'var(--gold)'}"></div>
+            </div>
+            <div style="font-size:.72rem;color:var(--text-muted);margin-top:3px">${pct.toFixed(0)}% · ${fmtMoney(balance)} / ${fmtMoney(g.target)}</div>
+          </div>`;
+        }).join('')
+      : '<div style="color:var(--text-muted);font-size:.83rem;padding:8px 0">Цілей ще не задано</div>';
+  } catch {
+    loading.textContent = 'Помилка завантаження.';
+  }
+}
+
+document.getElementById('mGoalAddBtn')?.addEventListener('click', async () => {
+  const userId = modalUserId;
+  if (!userId) return;
+  const target = parseFloat(document.getElementById('mGoalTargetInp').value);
+  const desc   = (document.getElementById('mGoalDescInp').value || '').trim() || 'Ощадна ціль';
+  const msgEl  = document.getElementById('mGoalMsg');
+  msgEl.classList.add('hidden');
+  if (!target || target <= 0) { msgEl.textContent = 'Вкажіть суму цілі.'; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden'); return; }
+  const line = `[Ціль] ${new Date().toLocaleDateString('uk-UA')}: ${target} UAH - ${desc}`;
+  try {
+    const cmpRes = await api.complianceGetUser(userId).catch(() => null);
+    const existing = cmpRes?.data?.compliance?.notes || '';
+    await api.complianceUpdateUser(userId, { notes: existing ? existing + '\n' + line : line });
+    msgEl.textContent = '✓ Ціль збережено.'; msgEl.className = 'form-msg success'; msgEl.classList.remove('hidden');
+    document.getElementById('mGoalTargetInp').value = '';
+    document.getElementById('mGoalDescInp').value   = '';
+    loadModalGoals(userId);
+  } catch (err) { msgEl.textContent = err.message; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden'); }
 });
 
 /* ══════════════════════════════════════════════

@@ -1946,3 +1946,144 @@ tr.bal-selected { background: rgba(200,168,75,.08) !important; }
   font-size: .82rem;
   color: var(--text);
 }
+
+/* ══════════════════════════════════════════════
+   TRANSACTION TYPE ICONS
+══════════════════════════════════════════════ */
+.tx-type-cell {
+  width: 28px;
+  text-align: center;
+  vertical-align: middle;
+  padding-right: 0 !important;
+}
+.tx-icon { display: inline-block; vertical-align: middle; flex-shrink: 0; }
+
+.tx-row { transition: background .12s; }
+.tx-row:hover { background: rgba(200,168,75,.05); }
+
+.tx-acc-code {
+  font-size: .76rem;
+  color: var(--text-muted);
+  background: rgba(255,255,255,.04);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.tx-dir-in  { color: var(--green); font-weight: 700; font-size: 1rem; }
+.tx-dir-out { color: var(--red);   font-weight: 700; font-size: 1rem; }
+
+.tx-amount-cell { font-size: .9rem; font-weight: 700; letter-spacing: -.01em; }
+.tx-amount-sign { font-size: .75rem; margin-right: 1px; opacity: .8; }
+
+/* ══════════════════════════════════════════════
+   ACHIEVEMENTS PAGE
+══════════════════════════════════════════════ */
+.ach-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.ach-stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 10px;
+  text-align: center;
+  transition: border-color .15s, transform .15s;
+}
+.ach-stat-card:hover { border-color: var(--gold); transform: translateY(-2px); }
+
+.ach-stat-label {
+  font-size: .72rem;
+  color: var(--text-muted);
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+.ach-stat-count {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.ach-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.ach-badge { display: inline-block; }
+.ach-badge--gold   { filter: drop-shadow(0 0 4px rgba(200,168,75,.5)); }
+.ach-badge--silver { filter: drop-shadow(0 0 3px rgba(156,163,175,.4)); }
+.ach-badge--bronze { filter: drop-shadow(0 0 3px rgba(180,83,9,.35)); }
+
+/* ══════════════════════════════════════════════
+   SAVINGS GOALS (user modal)
+══════════════════════════════════════════════ */
+.goal-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  transition: border-color .15s;
+}
+.goal-item:hover     { border-color: var(--gold); }
+.goal-item.goal-done { border-color: var(--green); background: rgba(74,222,128,.05); }
+
+.goal-progress-bar {
+  background: rgba(255,255,255,.08);
+  border-radius: 100px;
+  height: 6px;
+  overflow: hidden;
+}
+.goal-progress-fill {
+  height: 100%;
+  border-radius: 100px;
+  transition: width .4s ease;
+}
+
+/* ══════════════════════════════════════════════
+   ANTIQUE ROMAN ORNAMENTAL ACCENTS
+══════════════════════════════════════════════ */
+/* Decorative section dividers */
+.section-title::after {
+  content: '';
+  display: block;
+  margin-top: 6px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--gold) 0%, rgba(200,168,75,.3) 40%, transparent 100%);
+}
+
+/* Gold shimmer on stat values */
+.stat-value.gold,
+.registry-value.gold {
+  background: linear-gradient(135deg, #f0d080 0%, #c8a84b 50%, #8b6914 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Subtle Roman-coin texture on registry cards */
+.registry-card {
+  position: relative;
+  overflow: hidden;
+}
+.registry-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at top left, rgba(200,168,75,.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Antique border on modal */
+.modal-box {
+  border-top: 2px solid rgba(200,168,75,.4) !important;
+}
+
+/* Nav item active state gold line */
+.nav-item.active::before {
+  background: linear-gradient(180deg, #f0d080, #c8a84b) !important;
+}
