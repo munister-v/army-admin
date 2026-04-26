@@ -2136,3 +2136,121 @@ tr.bal-selected { background: rgba(200,168,75,.08) !important; }
 .nav-item.active::before {
   background: linear-gradient(180deg, #f0d080, #c8a84b) !important;
 }
+
+/* ══════════════════════════════════════════════
+   COMPREHENSIVE RESPONSIVE / ADAPTIVE
+══════════════════════════════════════════════ */
+
+/* ── 900px: tablet landscape ── */
+@media (max-width: 900px) {
+  .page-header { flex-wrap: wrap; gap: 10px; }
+}
+
+/* ── 768px: tablet portrait ── */
+@media (max-width: 768px) {
+  /* Modal tabs: scrollable strip */
+  .modal-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap !important;
+    padding-bottom: 1px;
+  }
+  .modal-tabs::-webkit-scrollbar { display: none; }
+  .modal-tab { white-space: nowrap; font-size: .82rem; padding: 10px 11px; }
+
+  /* Filters bar always column */
+  .filters-bar { flex-direction: column; align-items: stretch; }
+  .filters-bar > * { width: 100%; box-sizing: border-box; }
+
+  /* Inline 2-col form grids → 1 col */
+  .form-grid-2 { grid-template-columns: 1fr !important; }
+
+  /* Exchange convert row → 1 col, hide arrow */
+  .exch-conv-row { grid-template-columns: 1fr !important; }
+  .exch-arrow { display: none !important; }
+
+  /* Balance modal stats 3-col → 2-col */
+  #mBalStatsGrid { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Achievements stats already uses auto-fill; OK */
+
+  /* Today stats 2-col is fine on tablet */
+
+  /* Bulk action bars */
+  .bal-bulk-bar,
+  .proc-bulk-bar,
+  .cards-bulk-bar {
+    font-size: .8rem;
+    padding: 8px 12px;
+    gap: 6px;
+  }
+}
+
+/* ── 520px: phones ── */
+@media (max-width: 520px) {
+  /* Tighter content area */
+  .main-content { padding: 14px 10px; padding-top: 64px; }
+
+  /* Page header */
+  .page-header { margin-bottom: 16px; }
+  .page-header h2 { font-size: 1.1rem; }
+
+  /* Section titles */
+  .section-title { font-size: 1rem; }
+
+  /* Bottom-sheet modal */
+  .modal-overlay { padding: 0; align-items: flex-end; }
+  .modal-box {
+    border-radius: 20px 20px 0 0;
+    max-height: 92vh;
+    max-width: 100%;
+    border-bottom: none;
+  }
+
+  /* Stats grid: 2-col always fine on phones */
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* Balance modal stats → 1 col */
+  #mBalStatsGrid { grid-template-columns: 1fr !important; }
+
+  /* Today stats → 1 col */
+  .today-stats-grid { grid-template-columns: 1fr !important; }
+
+  /* Table action buttons smaller */
+  .btn-table { padding: 3px 7px; font-size: .71rem; }
+  .actions-cell { gap: 3px; }
+
+  /* Bulk bars: wrap buttons */
+  .bal-bulk-bar,
+  .proc-bulk-bar,
+  .cards-bulk-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .bal-bulk-bar > div,
+  .cards-bulk-bar > div { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+
+  /* Finance finproducts: always stack */
+  .exch-layout { grid-template-columns: 1fr !important; }
+
+  /* Card in form */
+  .form-card { padding: 14px; }
+
+  /* Auth card */
+  .auth-card { padding: 24px 16px; }
+
+  /* Fin sub-tabs wrap */
+  .fin-sub-tabs { flex-wrap: wrap; }
+
+  /* Modal section padding */
+  .modal-section { padding: 12px 16px; }
+  .modal-header { padding: 14px 16px; }
+}
+
+/* ── 380px: small phones ── */
+@media (max-width: 380px) {
+  .main-content { padding: 12px 8px; padding-top: 62px; }
+  .stats-grid { grid-template-columns: 1fr; }
+  .modal-tab { font-size: .78rem; padding: 9px 9px; }
+}
