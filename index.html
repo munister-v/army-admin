@@ -143,10 +143,16 @@
     <section id="page-dashboard" class="page active">
       <div class="page-header">
         <h2>Дешборд</h2>
-        <button class="btn-refresh" id="refreshStats">
-          <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
-          Оновити
-        </button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn-secondary autorefresh-toggle" id="autoRefreshBtn" title="Авто-оновлення кожні 30с">
+            <span id="autoRefreshIcon">▶</span> Авто
+          </button>
+          <span id="autoRefreshCountdown" style="font-size:.75rem;color:var(--text-muted);min-width:36px"></span>
+          <button class="btn-refresh" id="refreshStats">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+            Оновити
+          </button>
+        </div>
       </div>
       <div class="stats-grid" id="statsGrid">
         <div class="stat-card loading"><div class="stat-shimmer"></div></div>
@@ -242,7 +248,7 @@
         <table class="data-table" id="usersTable">
           <thead><tr>
             <th style="width:36px"><input type="checkbox" id="usersSelectAllChk" /></th>
-            <th>ID</th><th>ПІБ</th><th>Телефон</th><th>Email</th><th>Роль</th><th>KYC</th><th>AML</th><th>Зареєстровано</th><th>Дії</th>
+            <th>ID</th><th>ПІБ</th><th>Телефон</th><th>Email</th><th>Роль</th><th>Баланс</th><th>KYC</th><th>AML</th><th>Зареєстровано</th><th>Дії</th>
           </tr></thead>
           <tbody id="usersBody"></tbody>
         </table>
@@ -333,6 +339,14 @@
           <div class="modal-section">
             <div class="section-title" style="margin:0 0 12px">Картки</div>
             <button class="btn-secondary" id="mIssueCardBtn">+ Видати картку</button>
+          </div>
+          <div class="modal-section">
+            <div class="section-title" style="margin:0 0 12px">Внутрішня нотатка</div>
+            <textarea id="mNotesText" class="filter-input" rows="3" placeholder="Нотатка адміністратора (видно тільки адмінам)…" style="width:100%;resize:vertical;font-size:.83rem"></textarea>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn-primary" id="mNotesSaveBtn">Зберегти</button>
+              <span id="mNotesStatus" style="font-size:.8rem;color:var(--text-muted);align-self:center"></span>
+            </div>
           </div>
         </div>
         <!-- TAB: BALANCE HISTORY -->
@@ -1148,12 +1162,39 @@
         <button class="btn-secondary" id="applyCmpFilterBtn">Фільтрувати</button>
         <button class="btn-secondary" id="clearCmpFilterBtn">Скинути</button>
       </div>
+      <!-- Compliance bulk bar -->
+      <div class="bal-bulk-bar" id="cmpBulkBar">
+        <span id="cmpBulkCount">Обрано: 0</span>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <select id="cmpBulkKyc" class="filter-select" style="margin:0">
+            <option value="">— KYC статус —</option>
+            <option value="not_started">Не розпочато</option>
+            <option value="pending">Очікує</option>
+            <option value="in_review">На перевірці</option>
+            <option value="verified">Верифіковано</option>
+            <option value="rejected">Відхилено</option>
+          </select>
+          <select id="cmpBulkRisk" class="filter-select" style="margin:0">
+            <option value="">— Ризик —</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="critical">critical</option>
+          </select>
+          <button class="btn-secondary" id="cmpBulkApplyBtn" disabled>Застосувати</button>
+          <button class="btn-secondary" id="cmpBulkAmlOnBtn" disabled style="color:var(--red)">⚑ AML вкл</button>
+          <button class="btn-secondary" id="cmpBulkAmlOffBtn" disabled>✓ AML викл</button>
+        </div>
+        <button class="btn-secondary" id="cmpClearSelBtn">Скинути</button>
+      </div>
+      <div id="cmpBulkMsg" class="form-msg hidden" style="margin:4px 0 8px"></div>
       <div class="table-wrap">
         <table class="data-table" id="complianceTable">
           <thead><tr>
+            <th style="width:36px"><input type="checkbox" id="cmpSelectAllChk" /></th>
             <th>ID</th><th>ПІБ</th><th>Телефон</th><th>Роль</th><th>KYC статус</th><th>AML</th><th>Ризик</th><th>Нотатка</th><th>Оновлено</th><th>Дії</th>
           </tr></thead>
-          <tbody id="complianceBody"><tr><td colspan="10" class="empty-state">Завантаження…</td></tr></tbody>
+          <tbody id="complianceBody"><tr><td colspan="11" class="empty-state">Завантаження…</td></tr></tbody>
         </table>
       </div>
       <div class="pagination-bar" id="compliancePagination"></div>
@@ -1457,6 +1498,8 @@
           <button class="btn-secondary" id="balBulkSubBtn" disabled>− Списати</button>
         </div>
         <button class="btn-secondary" id="balSelectAllBtn">Вибрати всіх</button>
+        <button class="btn-secondary" id="balSelectNegBtn" title="Вибрати всіх з від'ємним балансом">Від'ємні</button>
+        <button class="btn-secondary" id="balSelectZeroBtn" title="Вибрати всіх з нульовим балансом">Нульові</button>
         <button class="btn-secondary" id="balClearSelBtn">Скинути</button>
       </div>
 

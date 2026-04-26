@@ -98,6 +98,7 @@ let balFilteredRows = [];
 let cmpOffset = 0;
 const CMP_LIMIT = 50;
 let cmpModalUserId = null;
+let cmpSelectedIds = new Set();
 let issueCardSelectedUserId = null;
 const procRequestSeq = {
   fraud: 0,
@@ -445,6 +446,39 @@ async function loadDashboardAlerts() {
 
 document.getElementById('refreshStats').addEventListener('click', loadDashboard);
 
+// ── Auto-refresh ──────────────────────────────────────────────────────────────
+let _autoRefreshTimer = null;
+let _autoRefreshCountdown = 0;
+const AUTO_REFRESH_INTERVAL = 30;
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  _autoRefreshCountdown = AUTO_REFRESH_INTERVAL;
+  document.getElementById('autoRefreshIcon').textContent = '⏸';
+  document.getElementById('autoRefreshBtn').classList.add('active-toggle');
+  _autoRefreshTimer = setInterval(() => {
+    _autoRefreshCountdown--;
+    const cd = document.getElementById('autoRefreshCountdown');
+    if (cd) cd.textContent = `${_autoRefreshCountdown}с`;
+    if (_autoRefreshCountdown <= 0) {
+      _autoRefreshCountdown = AUTO_REFRESH_INTERVAL;
+      if (currentPage === 'dashboard') loadDashboard();
+    }
+  }, 1000);
+}
+
+function stopAutoRefresh() {
+  if (_autoRefreshTimer) { clearInterval(_autoRefreshTimer); _autoRefreshTimer = null; }
+  document.getElementById('autoRefreshIcon').textContent = '▶';
+  document.getElementById('autoRefreshBtn').classList.remove('active-toggle');
+  const cd = document.getElementById('autoRefreshCountdown');
+  if (cd) cd.textContent = '';
+}
+
+document.getElementById('autoRefreshBtn').addEventListener('click', () => {
+  _autoRefreshTimer ? stopAutoRefresh() : startAutoRefresh();
+});
+
 /* ══════════════════════════════════════════════
    USERS
 ══════════════════════════════════════════════ */
@@ -470,8 +504,12 @@ async function loadUsers(offset = usersOffset) {
       return;
     }
     empty.classList.add('hidden');
-    tbody.innerHTML = users.map(u => `
-      <tr class="${usersSelectedIds.has(u.id) ? 'bal-selected' : ''}">
+    tbody.innerHTML = users.map(u => {
+      const bal = u.account?.balance ?? null;
+      const balHtml = bal !== null
+        ? `<span style="font-weight:600;${bal < 0 ? 'color:var(--red)' : bal === 0 ? 'color:var(--text-muted)' : ''}">${fmtMoney(bal)}</span>`
+        : '<span style="color:var(--text-muted)">—</span>';
+      return `<tr class="${usersSelectedIds.has(u.id) ? 'bal-selected' : ''}">
         <td><input type="checkbox" class="user-chk" data-uid="${u.id}" ${usersSelectedIds.has(u.id) ? 'checked' : ''} /></td>
         <td style="color:var(--text-muted);font-size:.8rem">${u.id}</td>
         <td>
@@ -485,12 +523,16 @@ async function loadUsers(offset = usersOffset) {
         <td style="font-size:.82rem">${escHtml(u.phone || '—')}</td>
         <td style="color:var(--text-muted);font-size:.82rem">${escHtml(u.email || '—')}</td>
         <td>${roleBadge(u.role)}</td>
+        <td>${balHtml}</td>
         <td>${kycBadge(u.kyc_status || 'pending')}</td>
         <td>${u.aml_flag ? '<span class="badge badge-blocked" style="font-size:.72rem">⚑</span>' : '<span style="color:var(--text-muted);font-size:.78rem">—</span>'}</td>
         <td style="color:var(--text-muted);font-size:.78rem">${fmt(u.created_at)}</td>
-        <td><button class="btn-table" onclick="openUserModal(${u.id})">Деталі →</button></td>
-      </tr>
-    `).join('');
+        <td style="display:flex;gap:4px;flex-wrap:wrap">
+          <button class="btn-table" onclick="openUserModal(${u.id})">Деталі →</button>
+          <button class="btn-table" onclick="usersQuickTopup(${u.id},'${escHtml(u.full_name||'')}')">↑ Поповнити</button>
+        </td>
+      </tr>`;
+    }).join('');
     tbody.querySelectorAll('.user-chk').forEach(chk => {
       chk.addEventListener('change', () => {
         const uid = Number(chk.dataset.uid);
@@ -569,6 +611,18 @@ document.getElementById('exportUsersBtn')?.addEventListener('click', () => {
   });
   downloadCsv('users_export.csv', csv);
 });
+window.usersQuickTopup = async function(userId, name) {
+  const amtStr = prompt(`Поповнити рахунок: ${name}\nСума (₴):`);
+  if (amtStr === null) return;
+  const amount = parseFloat(amtStr.replace(',', '.'));
+  if (!amount || amount <= 0) { showToast('Невірна сума', 'error'); return; }
+  try {
+    const res = await api.adjustUserBalance(userId, { amount, reason: 'Поповнення адміністратором', type: 'credit' });
+    showToast(`Поповнено ${fmtMoney(amount)}. Баланс: ${fmtMoney(res.data.new_balance)}`, 'success');
+    loadUsers(usersOffset);
+  } catch (err) { showToast(err.message, 'error'); }
+};
+
 document.getElementById('usersBulkPayBtn')?.addEventListener('click', () => runUsersBulkOp('payout'));
 document.getElementById('usersBulkTopupBtn')?.addEventListener('click', () => runUsersBulkOp('topup'));
 document.getElementById('usersClearSelBtn')?.addEventListener('click', () => { usersSelectedIds.clear(); loadUsers(usersOffset); });
@@ -588,6 +642,7 @@ function switchModalTab(tab) {
   if (tab === 'txs' && modalUserId) loadModalTxs(modalUserId);
   if (tab === 'balance' && modalUserId) loadModalBalanceHistory(modalUserId);
   if (tab === 'compliance' && modalUserId) loadModalCompliance(modalUserId);
+  if (tab === 'actions' && modalUserId) loadModalNotes(modalUserId);
 }
 
 async function openUserModal(userId) {
@@ -877,9 +932,46 @@ document.getElementById('mIssueCardBtn').addEventListener('click', async () => {
   document.getElementById('issueCardModal').classList.remove('hidden');
 });
 
+// ── Admin notes (compliance.notes field) ─────────────────────────────────────
+async function loadModalNotes(userId) {
+  const ta     = document.getElementById('mNotesText');
+  const status = document.getElementById('mNotesStatus');
+  if (!ta) return;
+  ta.value = '';
+  status.textContent = 'Завантаження…';
+  try {
+    const res = await api.complianceGetUser(userId);
+    ta.value = res.data?.compliance?.notes || '';
+    status.textContent = '';
+  } catch { status.textContent = ''; }
+}
+
+document.getElementById('mNotesSaveBtn')?.addEventListener('click', async () => {
+  if (!modalUserId) return;
+  const notes  = document.getElementById('mNotesText').value.trim();
+  const status = document.getElementById('mNotesStatus');
+  status.textContent = 'Збереження…';
+  try {
+    await api.complianceUpdateUser(modalUserId, { notes });
+    status.textContent = '✓ Збережено';
+    showToast('Нотатку збережено', 'success');
+    setTimeout(() => { status.textContent = ''; }, 2500);
+  } catch (err) {
+    status.textContent = `Помилка: ${err.message}`;
+  }
+});
+
 /* ══════════════════════════════════════════════
    TRANSACTIONS
 ══════════════════════════════════════════════ */
+window.copyTxId = function(id, btn) {
+  navigator.clipboard.writeText(String(id)).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✓';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  }).catch(() => showToast('Не вдалося скопіювати', 'error'));
+};
+
 async function loadTransactions(offset = 0) {
   const reqId = ++txReqSeq;
   txOffset = offset;
@@ -938,6 +1030,7 @@ async function loadTransactions(offset = 0) {
           <div class="tx-row-actions">
             <button class="tx-mini-btn" onclick="openTxDetailById(${tx.id})">Деталі</button>
             <button class="tx-mini-btn" onclick="openUserModal(${tx.user_id})">User</button>
+            <button class="tx-mini-btn" title="Копіювати ID" onclick="copyTxId(${tx.id},this)">📋</button>
           </div>
         </td>
       </tr>
@@ -3259,13 +3352,14 @@ async function loadCompliance(offset = 0) {
     const total = res.total || 0;
 
     if (!data.length) {
-      document.getElementById('complianceBody').innerHTML = '<tr><td colspan="10" class="empty-state">Записів не знайдено.</td></tr>';
+      document.getElementById('complianceBody').innerHTML = '<tr><td colspan="11" class="empty-state">Записів не знайдено.</td></tr>';
       renderCmpPagination(0, 0, CMP_LIMIT);
       return;
     }
 
     document.getElementById('complianceBody').innerHTML = data.map(u => `
-      <tr>
+      <tr class="${cmpSelectedIds.has(u.id) ? 'bal-selected' : ''}">
+        <td><input type="checkbox" class="cmp-chk" data-uid="${u.id}" ${cmpSelectedIds.has(u.id) ? 'checked' : ''} /></td>
         <td style="color:var(--text-muted);font-size:.78rem">${u.id}</td>
         <td style="font-weight:600;font-size:.82rem">${escHtml(u.full_name || '—')}</td>
         <td style="font-size:.8rem;color:var(--text-muted)">${escHtml(u.phone || '—')}</td>
@@ -3281,9 +3375,19 @@ async function loadCompliance(offset = 0) {
       </tr>
     `).join('');
 
+    document.getElementById('complianceBody').querySelectorAll('.cmp-chk').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const uid = Number(chk.dataset.uid);
+        chk.checked ? cmpSelectedIds.add(uid) : cmpSelectedIds.delete(uid);
+        chk.closest('tr').classList.toggle('bal-selected', chk.checked);
+        updateCmpBulkBar();
+      });
+    });
+    updateCmpBulkBar();
+    document.getElementById('cmpSelectAllChk').checked = false;
     renderCmpPagination(total, offset, CMP_LIMIT);
   } catch (err) {
-    document.getElementById('complianceBody').innerHTML = `<tr><td colspan="10" class="empty-state">${escHtml(err.message)}</td></tr>`;
+    document.getElementById('complianceBody').innerHTML = `<tr><td colspan="11" class="empty-state">${escHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -3297,6 +3401,63 @@ document.getElementById('clearCmpFilterBtn')?.addEventListener('click', () => {
 });
 
 document.getElementById('refreshComplianceBtn')?.addEventListener('click', () => loadCompliance(0));
+
+function updateCmpBulkBar() {
+  const n = cmpSelectedIds.size;
+  document.getElementById('cmpBulkCount').textContent = `Обрано: ${n}`;
+  ['cmpBulkApplyBtn', 'cmpBulkAmlOnBtn', 'cmpBulkAmlOffBtn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = n === 0;
+  });
+}
+
+async function runCmpBulkUpdate(patch) {
+  const ids = [...cmpSelectedIds];
+  if (!ids.length) return;
+  const msgEl = document.getElementById('cmpBulkMsg');
+  msgEl.textContent = `Обробка 0/${ids.length}…`;
+  msgEl.className   = 'form-msg';
+  msgEl.classList.remove('hidden');
+  let done = 0, failed = 0;
+  for (const uid of ids) {
+    try { await api.complianceUpdateUser(uid, patch); done++; }
+    catch { failed++; }
+    msgEl.textContent = `Обробка ${done + failed}/${ids.length}…`;
+  }
+  msgEl.textContent = `Виконано: ${done} успішно${failed ? `, ${failed} помилок` : ''}.`;
+  msgEl.className   = `form-msg ${failed ? 'error' : 'success'}`;
+  cmpSelectedIds.clear();
+  loadCompliance(cmpOffset);
+}
+
+document.getElementById('cmpBulkApplyBtn')?.addEventListener('click', () => {
+  const kyc  = document.getElementById('cmpBulkKyc').value;
+  const risk = document.getElementById('cmpBulkRisk').value;
+  const patch = {};
+  if (kyc)  patch.kyc_status = kyc;
+  if (risk) patch.risk_level = risk;
+  if (!Object.keys(patch).length) { showToast('Оберіть KYC або рівень ризику', 'error'); return; }
+  if (!confirm(`Застосувати оновлення для ${cmpSelectedIds.size} користувачів?`)) return;
+  runCmpBulkUpdate(patch);
+});
+document.getElementById('cmpBulkAmlOnBtn')?.addEventListener('click', () => {
+  if (!confirm(`Встановити AML прапор для ${cmpSelectedIds.size} користувачів?`)) return;
+  runCmpBulkUpdate({ aml_flag: true });
+});
+document.getElementById('cmpBulkAmlOffBtn')?.addEventListener('click', () => {
+  if (!confirm(`Зняти AML прапор з ${cmpSelectedIds.size} користувачів?`)) return;
+  runCmpBulkUpdate({ aml_flag: false });
+});
+document.getElementById('cmpClearSelBtn')?.addEventListener('click', () => { cmpSelectedIds.clear(); loadCompliance(cmpOffset); });
+document.getElementById('cmpSelectAllChk')?.addEventListener('change', function() {
+  document.getElementById('complianceBody').querySelectorAll('.cmp-chk').forEach(chk => {
+    const uid = Number(chk.dataset.uid);
+    this.checked ? cmpSelectedIds.add(uid) : cmpSelectedIds.delete(uid);
+    chk.checked = this.checked;
+    chk.closest('tr').classList.toggle('bal-selected', this.checked);
+  });
+  updateCmpBulkBar();
+});
 
 /* Compliance detail modal */
 async function openComplianceModal(userId) {
@@ -3944,6 +4105,18 @@ document.getElementById('balBulkSubBtn')?.addEventListener('click', () => balBul
 document.getElementById('balSelectAllBtn')?.addEventListener('click', () => {
   balFilteredRows.forEach(u => balSelectedIds.add(u.id));
   renderBalTable();
+});
+document.getElementById('balSelectNegBtn')?.addEventListener('click', () => {
+  balSelectedIds.clear();
+  balAllRows.filter(u => (u.account?.balance ?? 0) < 0).forEach(u => balSelectedIds.add(u.id));
+  renderBalTable();
+  showToast(`Вибрано ${balSelectedIds.size} від'ємних`, 'success');
+});
+document.getElementById('balSelectZeroBtn')?.addEventListener('click', () => {
+  balSelectedIds.clear();
+  balAllRows.filter(u => (u.account?.balance ?? 0) === 0).forEach(u => balSelectedIds.add(u.id));
+  renderBalTable();
+  showToast(`Вибрано ${balSelectedIds.size} нульових`);
 });
 document.getElementById('balClearSelBtn')?.addEventListener('click', () => {
   balSelectedIds.clear();
