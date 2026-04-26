@@ -1858,3 +1858,91 @@ tr.bal-selected { background: rgba(200,168,75,.08) !important; }
 }
 .today-stat-val.green { color: var(--green); }
 .today-stat-val.gold  { color: var(--gold);  }
+
+/* ── CURRENCY EXCHANGE ── */
+.exch-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 700px) { .exch-layout { grid-template-columns: 1fr; } }
+
+.exch-rates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.exch-rate-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 12px;
+  text-align: center;
+  border: 1px solid var(--border);
+  transition: border-color .15s;
+}
+.exch-rate-card:hover { border-color: var(--gold); }
+.exch-rate-cc {
+  font-size: .75rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.exch-rate-val {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--gold);
+}
+.exch-rate-label {
+  font-size: .7rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.exch-dest-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: rgba(234,179,8,.08);
+  border: 1px solid rgba(234,179,8,.2);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-top: 12px;
+  font-size: .8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.exch-dest-icon {
+  font-size: 1rem;
+  color: var(--gold);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* ── CREDITS / DEPOSITS ── */
+.fin-sub-tab {
+  padding: 5px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: .82rem;
+  cursor: pointer;
+  transition: all .15s;
+}
+.fin-sub-tab.active {
+  background: var(--gold);
+  color: #000;
+  border-color: var(--gold);
+  font-weight: 600;
+}
+.fin-sub-tab:hover:not(.active) { border-color: var(--gold); color: var(--gold); }
+
+.dep-preview {
+  background: rgba(234,179,8,.1);
+  border: 1px solid rgba(234,179,8,.25);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: .82rem;
+  color: var(--text);
+}

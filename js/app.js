@@ -1464,7 +1464,7 @@ document.getElementById('txDetailModal').addEventListener('click', (e) => {
   if (e.target === document.getElementById('txDetailModal')) closeTxDetail();
 });
 document.getElementById('txAdjustCreditBtn').addEventListener('click', () => submitTxAdjustment('credit'));
-document.getElementById('txAdjustDebitBtn').addEventListener('click', () => submitTxAdjustment('debit'));
+document.getElementById('txAdjustDebitBtn').addEventListener('click', () => submitTxAdjustment('deduction'));
 document.getElementById('txOpenUserBtn').addEventListener('click', () => {
   if (!txDetailTx || !txDetailTx.user_id) return;
   closeTxDetail();
@@ -3177,6 +3177,387 @@ document.getElementById('csvImportToBatchBtn')?.addEventListener('click', () => 
   _csvParsedRows = [];
   document.getElementById('csvPreviewWrap')?.classList.add('hidden');
   document.getElementById('csvImportFile').value = '';
+});
+
+/* ══════════════════════════════════════════════
+   CURRENCY EXCHANGE
+══════════════════════════════════════════════ */
+const NBU_API = 'https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json';
+const EXCH_CURRENCIES = ['USD', 'EUR', 'GBP', 'PLN'];
+let _exchRates = {};         // { USD: 41.5, EUR: 44.2, ... }
+let _exchSelectedUserId = null;
+let _exchLog = [];           // local exchange history
+
+async function loadExchangeRates() {
+  const grid = document.getElementById('exchRatesGrid');
+  const errEl = document.getElementById('exchRatesErr');
+  if (!grid) return;
+  grid.innerHTML = EXCH_CURRENCIES.map(() =>
+    '<div class="exch-rate-card loading"><div class="stat-shimmer"></div></div>'
+  ).join('');
+  errEl?.classList.add('hidden');
+  try {
+    const res  = await fetch(NBU_API);
+    const data = await res.json();
+    const wanted = new Set(EXCH_CURRENCIES);
+    data.forEach(r => { if (wanted.has(r.cc)) _exchRates[r.cc] = r.rate; });
+    const dateStr = data[0]?.exchangedate || '';
+    const dateEl = document.getElementById('exchRateDate');
+    if (dateEl) dateEl.textContent = dateStr ? `(${dateStr})` : '';
+
+    grid.innerHTML = EXCH_CURRENCIES.map(cc => {
+      const rate = _exchRates[cc];
+      const symbols = { USD: '$', EUR: '€', GBP: '£', PLN: 'zł' };
+      return `<div class="exch-rate-card">
+        <div class="exch-rate-cc">${symbols[cc] || ''} ${cc}</div>
+        <div class="exch-rate-val">${rate ? rate.toFixed(4) : '—'} ₴</div>
+        <div class="exch-rate-label">за 1 ${cc}</div>
+      </div>`;
+    }).join('');
+
+    // prefill rate input
+    updateExchRateInput();
+  } catch {
+    errEl?.classList.remove('hidden');
+    grid.innerHTML = '';
+  }
+}
+
+function updateExchRateInput() {
+  const sel = document.getElementById('exchToCurrency')?.value || 'USD';
+  const isReverse = sel.startsWith('UAH_FROM_');
+  const cc = isReverse ? sel.replace('UAH_FROM_', '') : sel;
+  const rate = _exchRates[cc];
+  const rateInp = document.getElementById('exchRate');
+  if (rateInp && rate) rateInp.value = rate.toFixed(4);
+  const fromLabel = document.getElementById('exchFromCurrLabel');
+  const toLabel   = document.getElementById('exchToCurrLabel');
+  if (isReverse) {
+    if (fromLabel) fromLabel.textContent = cc;
+    if (toLabel)   toLabel.textContent = 'UAH';
+  } else {
+    if (fromLabel) fromLabel.textContent = 'UAH';
+    if (toLabel)   toLabel.textContent = cc;
+  }
+  calcExchResult();
+}
+
+function calcExchResult() {
+  const fromAmt = parseFloat(document.getElementById('exchFromAmount')?.value) || 0;
+  const rate    = parseFloat(document.getElementById('exchRate')?.value) || 0;
+  const sel     = document.getElementById('exchToCurrency')?.value || 'USD';
+  const isReverse = sel.startsWith('UAH_FROM_');
+  let result = 0;
+  if (rate > 0 && fromAmt > 0) {
+    result = isReverse ? fromAmt * rate : fromAmt / rate;
+  }
+  const toInp = document.getElementById('exchToAmount');
+  if (toInp) toInp.value = result > 0 ? result.toFixed(4) : '';
+}
+
+document.getElementById('exchToCurrency')?.addEventListener('change', updateExchRateInput);
+document.getElementById('exchRate')?.addEventListener('input', calcExchResult);
+document.getElementById('exchFromAmount')?.addEventListener('input', calcExchResult);
+
+document.getElementById('refreshExchRatesBtn')?.addEventListener('click', loadExchangeRates);
+
+// User search for exchange
+const debouncedExchSearch = debounce(async (q) => {
+  const dd = document.getElementById('exchUserDropdown');
+  if (!dd) return;
+  if (q.length < 2) { dd.classList.add('hidden'); return; }
+  try {
+    const res   = await api.listUsers({ search: q, limit: 8 });
+    const users = res.users || res.data || [];
+    if (!users.length) { dd.innerHTML = '<div class="dropdown-item muted">Не знайдено</div>'; dd.classList.remove('hidden'); return; }
+    dd.innerHTML = users.map(u =>
+      `<div class="dropdown-item" data-uid="${u.id}" data-name="${escHtml(u.full_name || u.phone || u.id)}" data-phone="${escHtml(u.phone || '')}">
+         ${escHtml(u.full_name || '—')} <span style="color:var(--text-muted);font-size:.8rem">${escHtml(u.phone || '')}</span>
+       </div>`
+    ).join('');
+    dd.classList.remove('hidden');
+    dd.querySelectorAll('.dropdown-item[data-uid]').forEach(item => {
+      item.addEventListener('click', () => {
+        _exchSelectedUserId = item.dataset.uid;
+        document.getElementById('exchSelectedName').textContent = `${item.dataset.name}${item.dataset.phone ? ' — ' + item.dataset.phone : ''}`;
+        document.getElementById('exchSelectedChip').classList.remove('hidden');
+        document.getElementById('exchUserSearch').value = '';
+        dd.classList.add('hidden');
+        document.getElementById('exchSubmitBtn').disabled = false;
+        document.getElementById('exchIssueCardBtn').disabled = false;
+      });
+    });
+  } catch { dd.classList.add('hidden'); }
+}, 300);
+
+document.getElementById('exchUserSearch')?.addEventListener('input', e => debouncedExchSearch(e.target.value.trim()));
+document.getElementById('exchClearUser')?.addEventListener('click', () => {
+  _exchSelectedUserId = null;
+  document.getElementById('exchSelectedChip').classList.add('hidden');
+  document.getElementById('exchSubmitBtn').disabled = true;
+  document.getElementById('exchIssueCardBtn').disabled = true;
+});
+
+document.getElementById('exchSubmitBtn')?.addEventListener('click', async () => {
+  if (!_exchSelectedUserId) return;
+  const fromAmt  = parseFloat(document.getElementById('exchFromAmount').value);
+  const toAmt    = parseFloat(document.getElementById('exchToAmount').value) || 0;
+  const rate     = parseFloat(document.getElementById('exchRate').value);
+  const sel      = document.getElementById('exchToCurrency').value;
+  const isRev    = sel.startsWith('UAH_FROM_');
+  const cc       = isRev ? sel.replace('UAH_FROM_', '') : sel;
+  const reason   = (document.getElementById('exchReason').value.trim())
+    || (isRev ? `Обмін ${cc}→UAH: ${fromAmt.toFixed(2)} ${cc}` : `Обмін UAH→${cc}: ${toAmt.toFixed(4)} ${cc}`);
+  const msgEl    = document.getElementById('exchMsg');
+  msgEl.classList.add('hidden');
+  if (!fromAmt || fromAmt <= 0 || !rate || rate <= 0) {
+    msgEl.textContent = 'Вкажіть коректну суму та курс.'; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden'); return;
+  }
+  const deductionType = 'deduction';
+  const creditType    = 'credit';
+  const uahAmount = isRev ? toAmt : fromAmt;
+  const fxAmount  = isRev ? fromAmt : toAmt;
+  const fxLabel   = isRev ? 'UAH' : cc;
+  try {
+    let res;
+    if (isRev) {
+      // Foreign currency IN, UAH credited to account
+      res = await api.adjustUserBalance(_exchSelectedUserId, { amount: toAmt, reason, type: creditType });
+    } else {
+      // UAH deducted, foreign currency noted
+      res = await api.adjustUserBalance(_exchSelectedUserId, { amount: fromAmt, reason, type: deductionType });
+    }
+    // Add compliance note about FX
+    const noteText = isRev
+      ? `[Обмін] ${new Date().toLocaleDateString('uk-UA')}: ${fromAmt.toFixed(4)} ${cc} → ${toAmt.toFixed(2)} UAH (курс ${rate})`
+      : `[Обмін] ${new Date().toLocaleDateString('uk-UA')}: ${fromAmt.toFixed(2)} UAH → ${toAmt.toFixed(4)} ${cc} (курс ${rate})`;
+    await api.complianceUpdateUser(_exchSelectedUserId, { notes: noteText }).catch(() => {});
+
+    msgEl.textContent = `✓ Обмін виконано. ${isRev ? 'Зараховано' : 'Списано'} ${fmtMoney(isRev ? toAmt : fromAmt)}. Баланс: ${fmtMoney(res.data?.new_balance)}`;
+    msgEl.className = 'form-msg success';
+    msgEl.classList.remove('hidden');
+    showToast('Обмін валюти виконано');
+
+    // Log locally
+    _exchLog.unshift({ date: new Date(), userName: document.getElementById('exchSelectedName').textContent,
+      uahAmount, fxAmount, cc, rate, isRev });
+    renderExchLog();
+    document.getElementById('exchFromAmount').value = '';
+    document.getElementById('exchToAmount').value   = '';
+    document.getElementById('exchReason').value     = '';
+  } catch (err) {
+    msgEl.textContent = err.message; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden');
+  }
+});
+
+// Issue a FX card for the selected user
+document.getElementById('exchIssueCardBtn')?.addEventListener('click', async () => {
+  if (!_exchSelectedUserId) return;
+  const sel = document.getElementById('exchToCurrency').value;
+  const cc  = sel.startsWith('UAH_FROM_') ? sel.replace('UAH_FROM_', '') : sel;
+  const designs = { USD: 'usd', EUR: 'eur', GBP: 'gbp', PLN: 'pln' };
+  try {
+    await api.issueAdminCard(_exchSelectedUserId, { card_type: 'virtual', design: designs[cc] || 'gold' });
+    showToast(`Видано віртуальну картку (${cc})`);
+  } catch (err) {
+    showToast('Помилка видачі картки: ' + err.message, 'error');
+  }
+});
+
+function renderExchLog() {
+  const body = document.getElementById('exchLogBody');
+  if (!body) return;
+  if (!_exchLog.length) { body.innerHTML = '<tr><td colspan="6" class="empty-state">Немає записів</td></tr>'; return; }
+  body.innerHTML = _exchLog.slice(0, 30).map(r => `
+    <tr>
+      <td style="font-size:.78rem;color:var(--text-muted)">${r.date.toLocaleString('uk-UA')}</td>
+      <td style="font-size:.82rem">${escHtml(r.userName)}</td>
+      <td class="amount-out">${r.isRev ? '—' : fmtMoney(r.uahAmount)}</td>
+      <td style="font-weight:600">${r.cc}</td>
+      <td class="${r.isRev ? 'amount-in' : ''}">${r.isRev ? `+${fmtMoney(r.uahAmount)}` : r.fxAmount.toFixed(4)}</td>
+      <td style="color:var(--text-muted);font-size:.8rem">${r.rate}</td>
+    </tr>
+  `).join('');
+}
+
+// Load rates when exchange tab is opened (hook into the existing finSwitchTab via the event delegation)
+document.querySelectorAll('[data-fin-tab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.finTab;
+    if (tab === 'exchange' && Object.keys(_exchRates).length === 0) loadExchangeRates();
+  });
+});
+
+/* ══════════════════════════════════════════════
+   CREDITS & DEPOSITS
+══════════════════════════════════════════════ */
+
+// Deposit sub-tab switcher
+document.querySelectorAll('.fin-sub-tab[data-dep-tab]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.fin-sub-tab[data-dep-tab]').forEach(b => b.classList.toggle('active', b === btn));
+    ['open', 'close'].forEach(t => {
+      const el = document.getElementById(`dep-subtab-${t}`);
+      if (el) el.classList.toggle('hidden', t !== btn.dataset.depTab);
+    });
+  });
+});
+
+// Generic user-search factory for credit/deposit forms
+function makeFinProductUserSearch(searchId, dropdownId, chipId, nameId, clearId, submitIds, onSelect) {
+  let _selectedId = null;
+  const inp = document.getElementById(searchId);
+  const dd  = document.getElementById(dropdownId);
+  const debouncedSearch = debounce(async (q) => {
+    if (!dd) return;
+    if (q.length < 2) { dd.classList.add('hidden'); return; }
+    try {
+      const res   = await api.listUsers({ search: q, limit: 8 });
+      const users = res.users || res.data || [];
+      if (!users.length) { dd.innerHTML = '<div class="dropdown-item muted">Не знайдено</div>'; dd.classList.remove('hidden'); return; }
+      dd.innerHTML = users.map(u =>
+        `<div class="dropdown-item" data-uid="${u.id}" data-name="${escHtml(u.full_name || u.phone || u.id)}" data-phone="${escHtml(u.phone || '')}">
+           ${escHtml(u.full_name || '—')} <span style="color:var(--text-muted);font-size:.8rem">${escHtml(u.phone || '')}</span>
+         </div>`
+      ).join('');
+      dd.classList.remove('hidden');
+      dd.querySelectorAll('.dropdown-item[data-uid]').forEach(item => {
+        item.addEventListener('click', () => {
+          _selectedId = item.dataset.uid;
+          document.getElementById(nameId).textContent = item.dataset.name;
+          document.getElementById(chipId).classList.remove('hidden');
+          if (inp) inp.value = '';
+          dd.classList.add('hidden');
+          submitIds.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
+          if (onSelect) onSelect(_selectedId, item.dataset.name);
+        });
+      });
+    } catch { dd.classList.add('hidden'); }
+  }, 300);
+  inp?.addEventListener('input', e => debouncedSearch(e.target.value.trim()));
+  document.getElementById(clearId)?.addEventListener('click', () => {
+    _selectedId = null;
+    document.getElementById(chipId).classList.add('hidden');
+    submitIds.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
+  });
+  return { getId: () => _selectedId };
+}
+
+const _creditUser  = makeFinProductUserSearch('creditUserSearch', 'creditUserDropdown', 'creditSelectedChip', 'creditSelectedName', 'creditClearUser', ['creditSubmitBtn']);
+const _depOpenUser = makeFinProductUserSearch('depOpenUserSearch', 'depOpenUserDropdown', 'depOpenSelectedChip', 'depOpenSelectedName', 'depOpenClearUser', ['depOpenSubmitBtn'], () => updateDepOpenPreview());
+const _depCloseUser = makeFinProductUserSearch('depCloseUserSearch', 'depCloseUserDropdown', 'depCloseSelectedChip', 'depCloseSelectedName', 'depCloseClearUser', ['depCloseSubmitBtn'], () => updateDepClosePreview());
+
+// Deposit open preview
+function updateDepOpenPreview() {
+  const amount = parseFloat(document.getElementById('depOpenAmount')?.value) || 0;
+  const term   = parseInt(document.getElementById('depOpenTerm')?.value) || 0;
+  const rate   = parseFloat(document.getElementById('depOpenRate')?.value) || 0;
+  const prev   = document.getElementById('depOpenPreview');
+  if (!prev) return;
+  if (!amount || !term || !rate) { prev.classList.add('hidden'); return; }
+  const interest = amount * (rate / 100) * (term / 12);
+  const total    = amount + interest;
+  prev.innerHTML = `<strong>Тіло:</strong> ${fmtMoney(amount)} · <strong>Відсотки:</strong> ${fmtMoney(interest)} · <strong>До виплати:</strong> ${fmtMoney(total)}`;
+  prev.classList.remove('hidden');
+}
+['depOpenAmount', 'depOpenTerm', 'depOpenRate'].forEach(id =>
+  document.getElementById(id)?.addEventListener('input', updateDepOpenPreview)
+);
+
+// Deposit close preview
+function updateDepClosePreview() {
+  const body     = parseFloat(document.getElementById('depCloseBody')?.value) || 0;
+  const interest = parseFloat(document.getElementById('depCloseInterest')?.value) || 0;
+  const prev     = document.getElementById('depClosePreview');
+  if (!prev) return;
+  if (!body) { prev.classList.add('hidden'); return; }
+  prev.innerHTML = `<strong>Виплата:</strong> ${fmtMoney(body + interest)} (тіло ${fmtMoney(body)} + відсотки ${fmtMoney(interest)})`;
+  prev.classList.remove('hidden');
+}
+['depCloseBody', 'depCloseInterest'].forEach(id =>
+  document.getElementById(id)?.addEventListener('input', updateDepClosePreview)
+);
+
+// Credit submit
+document.getElementById('creditSubmitBtn')?.addEventListener('click', async () => {
+  const userId  = _creditUser.getId();
+  if (!userId) return;
+  const amount  = parseFloat(document.getElementById('creditAmount').value);
+  const term    = parseInt(document.getElementById('creditTerm').value) || 0;
+  const rate    = parseFloat(document.getElementById('creditRate').value) || 0;
+  const purpose = (document.getElementById('creditPurpose').value || '').trim() || 'Кредит';
+  const msgEl   = document.getElementById('creditMsg');
+  msgEl.classList.add('hidden');
+  if (!amount || amount <= 0) { msgEl.textContent = 'Вкажіть суму.'; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden'); return; }
+  const reason = `Кредит: ${purpose}${term ? `, ${term} міс.` : ''}${rate ? `, ${rate}% річних` : ''}`;
+  try {
+    const res = await api.adjustUserBalance(userId, { amount, reason, type: 'credit' });
+    // Note in compliance
+    const noteText = `[Кредит видано] ${new Date().toLocaleDateString('uk-UA')}: ${fmtMoney(amount)}, ${term} міс., ${rate}% — ${purpose}`;
+    await api.complianceUpdateUser(userId, { notes: noteText }).catch(() => {});
+    msgEl.textContent = `✓ Кредит ${fmtMoney(amount)} зараховано. Баланс: ${fmtMoney(res.data?.new_balance)}`;
+    msgEl.className = 'form-msg success'; msgEl.classList.remove('hidden');
+    showToast('Кредит видано');
+    document.getElementById('creditAmount').value = '';
+    document.getElementById('creditPurpose').value = '';
+  } catch (err) {
+    msgEl.textContent = err.message; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden');
+  }
+});
+
+// Deposit open submit
+document.getElementById('depOpenSubmitBtn')?.addEventListener('click', async () => {
+  const userId  = _depOpenUser.getId();
+  if (!userId) return;
+  const amount  = parseFloat(document.getElementById('depOpenAmount').value);
+  const term    = parseInt(document.getElementById('depOpenTerm').value) || 0;
+  const rate    = parseFloat(document.getElementById('depOpenRate').value) || 0;
+  const msgEl   = document.getElementById('depOpenMsg');
+  msgEl.classList.add('hidden');
+  if (!amount || amount <= 0) { msgEl.textContent = 'Вкажіть суму.'; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden'); return; }
+  const interest = amount * (rate / 100) * (term / 12);
+  const reason = `Відкриття депозиту: ${fmtMoney(amount)}, ${term} міс., ${rate}% (до виплати ${fmtMoney(amount + interest)})`;
+  try {
+    const res = await api.adjustUserBalance(userId, { amount, reason, type: 'deduction' });
+    const closeDate = new Date(); closeDate.setMonth(closeDate.getMonth() + term);
+    const noteText = `[Депозит відкрито] ${new Date().toLocaleDateString('uk-UA')}: ${fmtMoney(amount)}, ${term} міс., ${rate}%, закриття ${closeDate.toLocaleDateString('uk-UA')}, відсотки ${fmtMoney(interest)}`;
+    await api.complianceUpdateUser(userId, { notes: noteText }).catch(() => {});
+    msgEl.textContent = `✓ Депозит ${fmtMoney(amount)} відкрито. Баланс: ${fmtMoney(res.data?.new_balance)}`;
+    msgEl.className = 'form-msg success'; msgEl.classList.remove('hidden');
+    showToast('Депозит відкрито');
+    document.getElementById('depOpenAmount').value = '';
+    document.getElementById('depOpenPreview').classList.add('hidden');
+  } catch (err) {
+    msgEl.textContent = err.message; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden');
+  }
+});
+
+// Deposit close submit
+document.getElementById('depCloseSubmitBtn')?.addEventListener('click', async () => {
+  const userId   = _depCloseUser.getId();
+  if (!userId) return;
+  const body     = parseFloat(document.getElementById('depCloseBody').value);
+  const interest = parseFloat(document.getElementById('depCloseInterest').value) || 0;
+  const closeReason = document.getElementById('depCloseReason').value;
+  const msgEl    = document.getElementById('depCloseMsg');
+  const reasonLabels = { maturity: 'закінчення терміну', early: 'дострокове закриття', reinvest: 'реінвестиція' };
+  msgEl.classList.add('hidden');
+  if (!body || body <= 0) { msgEl.textContent = 'Вкажіть тіло депозиту.'; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden'); return; }
+  const total  = body + interest;
+  const reason = `Закриття депозиту (${reasonLabels[closeReason] || closeReason}): тіло ${fmtMoney(body)} + відсотки ${fmtMoney(interest)}`;
+  try {
+    const res = await api.adjustUserBalance(userId, { amount: total, reason, type: 'credit' });
+    const noteText = `[Депозит закрито] ${new Date().toLocaleDateString('uk-UA')}: виплачено ${fmtMoney(total)} (${reasonLabels[closeReason]})`;
+    await api.complianceUpdateUser(userId, { notes: noteText }).catch(() => {});
+    msgEl.textContent = `✓ Депозит закрито. Виплачено ${fmtMoney(total)}. Баланс: ${fmtMoney(res.data?.new_balance)}`;
+    msgEl.className = 'form-msg success'; msgEl.classList.remove('hidden');
+    showToast('Депозит закрито та виплачено');
+    document.getElementById('depCloseBody').value     = '';
+    document.getElementById('depCloseInterest').value = '0';
+    document.getElementById('depClosePreview').classList.add('hidden');
+  } catch (err) {
+    msgEl.textContent = err.message; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden');
+  }
 });
 
 /* ══════════════════════════════════════════════

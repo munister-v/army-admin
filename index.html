@@ -962,12 +962,14 @@
       </div>
 
       <!-- Tab switcher -->
-      <div class="modal-tabs fin-tabs" style="margin:20px 0 0">
+      <div class="modal-tabs fin-tabs" style="margin:20px 0 0;flex-wrap:wrap">
         <button class="modal-tab active" data-fin-tab="single">Нарахування</button>
-        <button class="modal-tab" data-fin-tab="topup">Поповнення рахунку</button>
-        <button class="modal-tab" data-fin-tab="batch">Пакетне нарахування</button>
-        <button class="modal-tab" data-fin-tab="csv">CSV Імпорт</button>
-        <button class="modal-tab" data-fin-tab="dispatch">Диспетч-журнал</button>
+        <button class="modal-tab" data-fin-tab="topup">Поповнення</button>
+        <button class="modal-tab" data-fin-tab="batch">Пакет</button>
+        <button class="modal-tab" data-fin-tab="csv">CSV</button>
+        <button class="modal-tab" data-fin-tab="exchange">Обмін валют</button>
+        <button class="modal-tab" data-fin-tab="finproducts">Кредити / Депозити</button>
+        <button class="modal-tab" data-fin-tab="dispatch">Журнал</button>
       </div>
 
       <!-- Tab: Single payout -->
@@ -1103,6 +1105,233 @@
                 <thead><tr><th>#</th><th>User ID</th><th>Сума</th><th>Тип</th><th>Призначення</th><th>Статус</th></tr></thead>
                 <tbody id="csvPreviewBody"></tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Currency Exchange -->
+      <div class="fin-tab-content hidden" id="fin-tab-exchange">
+        <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px" class="exch-layout">
+          <!-- Left: rates -->
+          <div>
+            <div class="section-title" style="margin-bottom:10px">
+              Курси НБУ
+              <span id="exchRateDate" style="font-size:.75rem;color:var(--text-muted);margin-left:8px"></span>
+              <button class="btn-refresh" id="refreshExchRatesBtn" title="Оновити курси" style="padding:4px;width:28px;height:28px;margin-left:6px;display:inline-flex;align-items:center;justify-content:center">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+              </button>
+            </div>
+            <div id="exchRatesGrid" class="exch-rates-grid">
+              <div class="exch-rate-card loading"><div class="stat-shimmer"></div></div>
+              <div class="exch-rate-card loading"><div class="stat-shimmer"></div></div>
+              <div class="exch-rate-card loading"><div class="stat-shimmer"></div></div>
+              <div class="exch-rate-card loading"><div class="stat-shimmer"></div></div>
+            </div>
+            <div id="exchRatesErr" class="form-msg error hidden" style="margin-top:8px">Не вдалося завантажити курси НБУ</div>
+          </div>
+
+          <!-- Right: exchange form -->
+          <div>
+            <div class="section-title" style="margin-bottom:10px">Операція обміну</div>
+            <div class="form-card" style="padding:16px">
+              <div class="field-group">
+                <label>Користувач</label>
+                <div class="user-search-wrap">
+                  <input type="text" id="exchUserSearch" class="filter-input" placeholder="Пошук за ім'ям / телефоном…" autocomplete="off" />
+                  <div id="exchUserDropdown" class="user-dropdown hidden"></div>
+                </div>
+                <div id="exchSelectedChip" class="selected-user hidden">
+                  <span id="exchSelectedName">—</span>
+                  <button id="exchClearUser" type="button">✕</button>
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:end;margin-top:10px">
+                <div class="field-group" style="margin:0">
+                  <label>Сума (від)</label>
+                  <div style="position:relative">
+                    <input type="number" id="exchFromAmount" class="filter-input" placeholder="0.00" min="0.01" step="0.01" style="padding-right:52px" />
+                    <span id="exchFromCurrLabel" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:.82rem;color:var(--gold);font-weight:700">UAH</span>
+                  </div>
+                </div>
+                <div style="text-align:center;padding-bottom:8px;font-size:1.2rem;color:var(--text-muted)">→</div>
+                <div class="field-group" style="margin:0">
+                  <label>Отримає (до)</label>
+                  <div style="position:relative">
+                    <input type="text" id="exchToAmount" class="filter-input" placeholder="0.00" readonly style="background:var(--surface-2);padding-right:52px" />
+                    <span id="exchToCurrLabel" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:.82rem;color:var(--gold);font-weight:700">USD</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+                <div class="field-group" style="margin:0">
+                  <label>Валюта обміну</label>
+                  <select id="exchToCurrency" class="filter-select">
+                    <option value="USD">USD — Долар США</option>
+                    <option value="EUR">EUR — Євро</option>
+                    <option value="GBP">GBP — Фунт стерлінгів</option>
+                    <option value="PLN">PLN — Польський злотий</option>
+                    <option value="UAH_FROM_USD">USD → UAH (зворотній)</option>
+                    <option value="UAH_FROM_EUR">EUR → UAH (зворотній)</option>
+                  </select>
+                </div>
+                <div class="field-group" style="margin:0">
+                  <label>Курс (UAH за 1 одиницю)</label>
+                  <input type="number" id="exchRate" class="filter-input" placeholder="Завантаження…" min="0.01" step="0.0001" />
+                </div>
+              </div>
+
+              <div class="field-group" style="margin-top:10px">
+                <label>Призначення</label>
+                <input type="text" id="exchReason" class="filter-input" placeholder="Обмін валюти" />
+              </div>
+
+              <!-- Where does FX go explanation -->
+              <div id="exchFxDestNote" class="exch-dest-note">
+                <span class="exch-dest-icon">ℹ</span>
+                <div>
+                  <strong>Куди йдуть валютні кошти?</strong><br>
+                  <span id="exchFxDestText">Після обміну UAH списуються з основного рахунку. Сума в іноземній валюті фіксується у нотатках комплаєнсу користувача та може бути прив'язана до картки.</span>
+                </div>
+              </div>
+
+              <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+                <button class="btn-primary gold" id="exchSubmitBtn" disabled>Виконати обмін</button>
+                <button class="btn-secondary" id="exchIssueCardBtn" disabled title="Видати картку для зберігання валюти">+ Валютна картка</button>
+              </div>
+              <div id="exchMsg" class="form-msg hidden" style="margin-top:10px"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Exchange log (recent exchange txs) -->
+        <div class="section-title" style="margin-top:24px">Останні операції обміну</div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Дата</th><th>Користувач</th><th>Сума списання</th><th>Валюта</th><th>Сума валюти</th><th>Курс</th></tr></thead>
+            <tbody id="exchLogBody"><tr><td colspan="6" class="empty-state">Немає записів</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Credits & Deposits -->
+      <div class="fin-tab-content hidden" id="fin-tab-finproducts">
+        <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px" class="exch-layout">
+
+          <!-- Credit issuance -->
+          <div>
+            <div class="section-title" style="margin-bottom:10px;color:var(--green)">Кредит (видача)</div>
+            <div class="form-card" style="padding:16px;border-color:rgba(74,222,128,.2)">
+              <div class="field-group">
+                <label>Позичальник</label>
+                <div class="user-search-wrap">
+                  <input type="text" id="creditUserSearch" class="filter-input" placeholder="Пошук за ім'ям / телефоном…" autocomplete="off" />
+                  <div id="creditUserDropdown" class="user-dropdown hidden"></div>
+                </div>
+                <div id="creditSelectedChip" class="selected-user hidden">
+                  <span id="creditSelectedName">—</span>
+                  <button id="creditClearUser" type="button">✕</button>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+                <div class="field-group" style="margin:0">
+                  <label>Сума (₴)</label>
+                  <input type="number" id="creditAmount" class="filter-input" placeholder="0.00" min="1" step="0.01" />
+                </div>
+                <div class="field-group" style="margin:0">
+                  <label>Термін (міс.)</label>
+                  <input type="number" id="creditTerm" class="filter-input" placeholder="12" min="1" max="120" />
+                </div>
+              </div>
+              <div class="field-group" style="margin-top:8px">
+                <label>Відсоткова ставка (% річних)</label>
+                <input type="number" id="creditRate" class="filter-input" placeholder="0" min="0" max="100" step="0.1" value="0" />
+              </div>
+              <div class="field-group" style="margin-top:8px">
+                <label>Призначення кредиту</label>
+                <input type="text" id="creditPurpose" class="filter-input" placeholder="Напр.: житлова програма, авто…" />
+              </div>
+              <button class="btn-primary" id="creditSubmitBtn" disabled style="margin-top:12px;width:100%;background:var(--green);border-color:var(--green)">Видати кредит</button>
+              <div id="creditMsg" class="form-msg hidden" style="margin-top:8px"></div>
+            </div>
+          </div>
+
+          <!-- Deposit management -->
+          <div>
+            <div class="section-title" style="margin-bottom:10px;color:var(--gold)">Депозит</div>
+            <div class="fin-sub-tabs" style="display:flex;gap:4px;margin-bottom:10px">
+              <button class="fin-sub-tab active" data-dep-tab="open">Відкрити</button>
+              <button class="fin-sub-tab" data-dep-tab="close">Закрити / Виплатити</button>
+            </div>
+
+            <!-- Open deposit -->
+            <div id="dep-subtab-open" class="form-card" style="padding:16px;border-color:rgba(234,179,8,.2)">
+              <div class="field-group">
+                <label>Вкладник</label>
+                <div class="user-search-wrap">
+                  <input type="text" id="depOpenUserSearch" class="filter-input" placeholder="Пошук за ім'ям / телефоном…" autocomplete="off" />
+                  <div id="depOpenUserDropdown" class="user-dropdown hidden"></div>
+                </div>
+                <div id="depOpenSelectedChip" class="selected-user hidden">
+                  <span id="depOpenSelectedName">—</span>
+                  <button id="depOpenClearUser" type="button">✕</button>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+                <div class="field-group" style="margin:0">
+                  <label>Сума (₴)</label>
+                  <input type="number" id="depOpenAmount" class="filter-input" placeholder="0.00" min="1" step="0.01" />
+                </div>
+                <div class="field-group" style="margin:0">
+                  <label>Термін (міс.)</label>
+                  <input type="number" id="depOpenTerm" class="filter-input" placeholder="3" min="1" max="60" value="3" />
+                </div>
+              </div>
+              <div class="field-group" style="margin-top:8px">
+                <label>Річна ставка (%)</label>
+                <input type="number" id="depOpenRate" class="filter-input" placeholder="12" min="0" max="50" step="0.1" value="12" />
+              </div>
+              <div id="depOpenPreview" class="dep-preview hidden" style="margin-top:10px"></div>
+              <button class="btn-primary" id="depOpenSubmitBtn" disabled style="margin-top:12px;width:100%;background:var(--gold);border-color:var(--gold);color:#000">Відкрити депозит</button>
+              <div id="depOpenMsg" class="form-msg hidden" style="margin-top:8px"></div>
+            </div>
+
+            <!-- Close deposit -->
+            <div id="dep-subtab-close" class="form-card hidden" style="padding:16px;border-color:rgba(234,179,8,.2)">
+              <div class="field-group">
+                <label>Вкладник</label>
+                <div class="user-search-wrap">
+                  <input type="text" id="depCloseUserSearch" class="filter-input" placeholder="Пошук за ім'ям / телефоном…" autocomplete="off" />
+                  <div id="depCloseUserDropdown" class="user-dropdown hidden"></div>
+                </div>
+                <div id="depCloseSelectedChip" class="selected-user hidden">
+                  <span id="depCloseSelectedName">—</span>
+                  <button id="depCloseClearUser" type="button">✕</button>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+                <div class="field-group" style="margin:0">
+                  <label>Тіло депозиту (₴)</label>
+                  <input type="number" id="depCloseBody" class="filter-input" placeholder="0.00" min="0.01" step="0.01" />
+                </div>
+                <div class="field-group" style="margin:0">
+                  <label>Нараховані відсотки (₴)</label>
+                  <input type="number" id="depCloseInterest" class="filter-input" placeholder="0.00" min="0" step="0.01" value="0" />
+                </div>
+              </div>
+              <div class="field-group" style="margin-top:8px">
+                <label>Причина закриття</label>
+                <select id="depCloseReason" class="filter-select">
+                  <option value="maturity">Закінчення терміну</option>
+                  <option value="early">Дострокове закриття</option>
+                  <option value="reinvest">Реінвестиція</option>
+                </select>
+              </div>
+              <div id="depClosePreview" class="dep-preview hidden" style="margin-top:10px"></div>
+              <button class="btn-primary" id="depCloseSubmitBtn" disabled style="margin-top:12px;width:100%;background:var(--gold);border-color:var(--gold);color:#000">Закрити депозит і виплатити</button>
+              <div id="depCloseMsg" class="form-msg hidden" style="margin-top:8px"></div>
             </div>
           </div>
         </div>
