@@ -76,6 +76,9 @@ const PROC_INBOX_LIMIT = 12;
 let procLastRiskCount = 0;
 let procModalOrderId = null;
 let procSlaSelectedIds = new Set();
+let usersOffset = 0;
+const USERS_LIMIT = 50;
+let usersSelectedIds = new Set();
 let cardsOffset = 0;
 const CARDS_LIMIT = 50;
 let dispatchOffset = 0;
@@ -410,6 +413,34 @@ async function loadDashboard() {
   } catch (err) {
     showToast('Помилка дешборду: ' + err.message, 'error');
   }
+
+  loadDashboardAlerts();
+}
+
+async function loadDashboardAlerts() {
+  const wrap = document.getElementById('dashAlerts');
+  const body = document.getElementById('dashAlertsBody');
+  try {
+    const res = await api.complianceStats();
+    const d = res.data || {};
+    const alerts = [];
+    const amlCount = d.aml_flagged || 0;
+    const highRisk = (d.risk?.high || 0) + (d.risk?.critical || 0);
+    const pending  = d.kyc?.pending || 0;
+    const inReview = d.kyc?.in_review || 0;
+    if (amlCount > 0)  alerts.push({ label: `${amlCount} користувач(ів) з AML прапором`, color: 'var(--red)',  page: 'compliance', filter: 'aml' });
+    if (highRisk > 0)  alerts.push({ label: `${highRisk} користувач(ів) з high/critical ризиком`, color: '#c2410c', page: 'compliance', filter: 'risk' });
+    if (inReview > 0)  alerts.push({ label: `${inReview} KYC заявок на перевірці`, color: 'var(--gold)',   page: 'compliance', filter: 'review' });
+    if (pending > 0)   alerts.push({ label: `${pending} KYC очікують верифікації`, color: 'var(--text-muted)', page: 'compliance', filter: '' });
+    if (!alerts.length) { wrap.classList.add('hidden'); return; }
+    wrap.classList.remove('hidden');
+    body.innerHTML = alerts.map(a =>
+      `<div class="dash-alert" style="border-left-color:${a.color}" onclick="navigate('${a.page}')">
+        <span style="color:${a.color};font-weight:600">${a.label}</span>
+        <span style="font-size:.8rem;color:var(--text-muted);margin-left:auto">→ Перейти</span>
+      </div>`
+    ).join('');
+  } catch { wrap.classList.add('hidden'); }
 }
 
 document.getElementById('refreshStats').addEventListener('click', loadDashboard);
@@ -417,18 +448,22 @@ document.getElementById('refreshStats').addEventListener('click', loadDashboard)
 /* ══════════════════════════════════════════════
    USERS
 ══════════════════════════════════════════════ */
-async function loadUsers() {
+async function loadUsers(offset = usersOffset) {
+  usersOffset = offset;
   const search = document.getElementById('userSearch').value.trim();
-  const role = document.getElementById('userRoleFilter').value;
+  const role   = document.getElementById('userRoleFilter').value;
+  const params = { limit: USERS_LIMIT, offset: usersOffset };
+  if (search) params.search = search;
+  if (role)   params.role   = role;
+  const empty = document.getElementById('usersEmpty');
+  const tbody = document.getElementById('usersBody');
   try {
-    const params = {};
-    if (search) params.search = search;
-    if (role)   params.role   = role;
-    const res = await api.listUsers(params);
+    const res   = await api.listUsers(params);
     const users = res.data || [];
+    const total = res.total || users.length;
     lastUsersRows = users;
-    const empty = document.getElementById('usersEmpty');
-    const tbody = document.getElementById('usersBody');
+    renderUsersPagination(total, usersOffset, USERS_LIMIT);
+    updateUsersBulkBar();
     if (!users.length) {
       tbody.innerHTML = '';
       empty.classList.remove('hidden');
@@ -436,7 +471,8 @@ async function loadUsers() {
     }
     empty.classList.add('hidden');
     tbody.innerHTML = users.map(u => `
-      <tr>
+      <tr class="${usersSelectedIds.has(u.id) ? 'bal-selected' : ''}">
+        <td><input type="checkbox" class="user-chk" data-uid="${u.id}" ${usersSelectedIds.has(u.id) ? 'checked' : ''} /></td>
         <td style="color:var(--text-muted);font-size:.8rem">${u.id}</td>
         <td>
           <div style="display:flex;align-items:center;gap:8px">
@@ -455,18 +491,76 @@ async function loadUsers() {
         <td><button class="btn-table" onclick="openUserModal(${u.id})">Деталі →</button></td>
       </tr>
     `).join('');
+    tbody.querySelectorAll('.user-chk').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const uid = Number(chk.dataset.uid);
+        chk.checked ? usersSelectedIds.add(uid) : usersSelectedIds.delete(uid);
+        chk.closest('tr').classList.toggle('bal-selected', chk.checked);
+        updateUsersBulkBar();
+      });
+    });
+    document.getElementById('usersSelectAllChk').checked = false;
   } catch (err) {
     showToast('Помилка: ' + err.message, 'error');
   }
 }
 
+function renderUsersPagination(total, offset, limit) {
+  const el = document.getElementById('usersPagination');
+  if (!el) return;
+  const pages = Math.ceil(total / limit);
+  const cur   = Math.floor(offset / limit);
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  el.innerHTML = Array.from({ length: pages }, (_, i) =>
+    `<button class="page-btn${i === cur ? ' active' : ''}" data-upage="${i}">${i + 1}</button>`
+  ).join('');
+  el.querySelectorAll('[data-upage]').forEach(btn => {
+    btn.addEventListener('click', () => loadUsers(parseInt(btn.dataset.upage) * limit));
+  });
+}
+
+function updateUsersBulkBar() {
+  const n = usersSelectedIds.size;
+  document.getElementById('usersBulkCount').textContent = `Обрано: ${n}`;
+  document.getElementById('usersBulkPayBtn').disabled   = n === 0;
+  document.getElementById('usersBulkTopupBtn').disabled = n === 0;
+}
+
+async function runUsersBulkOp(op) {
+  const ids = [...usersSelectedIds];
+  if (!ids.length) return;
+  const amountRaw = document.getElementById('usersBulkAmount').value;
+  const amount    = parseFloat(amountRaw);
+  const msgEl     = document.getElementById('usersBulkMsg');
+  if (!amount || amount <= 0) { showToast('Введіть суму', 'error'); return; }
+  const payout_type = document.getElementById('usersBulkType').value;
+  const label = op === 'payout' ? `виплату ${fmtMoney(amount)}` : `поповнення ${fmtMoney(amount)}`;
+  if (!confirm(`Застосувати ${label} для ${ids.length} користувачів?`)) return;
+  msgEl.textContent = `Обробка 0/${ids.length}…`;
+  msgEl.className   = 'form-msg';
+  msgEl.classList.remove('hidden');
+  let done = 0, failed = 0;
+  for (const uid of ids) {
+    try {
+      if (op === 'payout') await api.createPayout({ user_id: uid, amount, payout_type, title: payout_type });
+      else await api.adjustUserBalance(uid, { amount, reason: 'bulk topup', type: 'credit' });
+      done++;
+    } catch { failed++; }
+    msgEl.textContent = `Обробка ${done + failed}/${ids.length}…`;
+  }
+  msgEl.textContent = `Виконано: ${done} успішно${failed ? `, ${failed} помилок` : ''}.`;
+  msgEl.className   = `form-msg ${failed ? 'error' : 'success'}`;
+  usersSelectedIds.clear();
+  loadUsers(usersOffset);
+}
+
 // Debounced search
 let lastUsersRows = [];
 
-const debouncedSearch = debounce(loadUsers, 380);
+const debouncedSearch = debounce(() => { usersSelectedIds.clear(); loadUsers(0); }, 380);
 document.getElementById('userSearch').addEventListener('input', debouncedSearch);
-document.getElementById('userRoleFilter').addEventListener('change', loadUsers);
-document.getElementById('searchUsersBtn').addEventListener('click', loadUsers);
+document.getElementById('userRoleFilter').addEventListener('change', () => { usersSelectedIds.clear(); loadUsers(0); });
+document.getElementById('searchUsersBtn').addEventListener('click', () => { usersSelectedIds.clear(); loadUsers(0); });
 document.getElementById('exportUsersBtn')?.addEventListener('click', () => {
   if (!lastUsersRows.length) { showToast('Спочатку завантажте список', 'error'); return; }
   let csv = 'ID,ПІБ,Телефон,Email,Роль,KYC,AML,Зареєстровано\n';
@@ -474,6 +568,13 @@ document.getElementById('exportUsersBtn')?.addEventListener('click', () => {
     csv += `"${u.id}","${u.full_name || ''}","${u.phone || ''}","${u.email || ''}","${u.role}","${u.kyc_status || ''}","${u.aml_flag ? 'так' : 'ні'}","${u.created_at || ''}"\n`;
   });
   downloadCsv('users_export.csv', csv);
+});
+document.getElementById('usersBulkPayBtn')?.addEventListener('click', () => runUsersBulkOp('payout'));
+document.getElementById('usersBulkTopupBtn')?.addEventListener('click', () => runUsersBulkOp('topup'));
+document.getElementById('usersClearSelBtn')?.addEventListener('click', () => { usersSelectedIds.clear(); loadUsers(usersOffset); });
+document.getElementById('usersSelectAllChk')?.addEventListener('change', function() {
+  lastUsersRows.forEach(u => this.checked ? usersSelectedIds.add(u.id) : usersSelectedIds.delete(u.id));
+  loadUsers(usersOffset);
 });
 
 /* ── USER MODAL ── */
@@ -485,6 +586,7 @@ function switchModalTab(tab) {
     c.classList.toggle('hidden', !show);
   });
   if (tab === 'txs' && modalUserId) loadModalTxs(modalUserId);
+  if (tab === 'balance' && modalUserId) loadModalBalanceHistory(modalUserId);
   if (tab === 'compliance' && modalUserId) loadModalCompliance(modalUserId);
 }
 
@@ -556,6 +658,42 @@ async function loadModalTxs(userId) {
       </tr>
     `).join('');
   } catch (err) {
+    loading.textContent = 'Помилка завантаження.';
+  }
+}
+
+async function loadModalBalanceHistory(userId) {
+  const loading = document.getElementById('mBalLoading');
+  const wrap    = document.getElementById('mBalWrap');
+  loading.style.display = 'block';
+  wrap.style.display    = 'none';
+  try {
+    const [userRes, txRes] = await Promise.all([
+      api.getUser(userId),
+      api.getUserTransactions(userId, 200),
+    ]);
+    loading.style.display = 'none';
+    wrap.style.display    = 'block';
+    const balance = userRes.data?.account?.balance ?? null;
+    document.getElementById('mBalCurrent').textContent = balance !== null ? fmtMoney(balance) : '—';
+    const txs = (txRes.data || []).filter(tx =>
+      tx.direction === 'in' || tx.direction === 'out'
+    );
+    if (!txs.length) {
+      document.getElementById('mBalBody').innerHTML = '<tr><td colspan="4" class="empty-state">Транзакцій не знайдено.</td></tr>';
+      return;
+    }
+    document.getElementById('mBalBody').innerHTML = txs.map(tx => `
+      <tr>
+        <td style="font-size:.78rem;color:var(--text-muted);white-space:nowrap">${fmt(tx.created_at)}</td>
+        <td>${txTypeBadge(tx.tx_type)}</td>
+        <td class="${tx.direction === 'in' ? 'amount-in' : 'amount-out'}" style="font-weight:600">
+          ${tx.direction === 'in' ? '+' : '−'}${fmtMoney(tx.amount)}
+        </td>
+        <td style="font-size:.78rem;color:var(--text-muted);max-width:140px;overflow:hidden;text-overflow:ellipsis">${escHtml(tx.description || '—')}</td>
+      </tr>
+    `).join('');
+  } catch {
     loading.textContent = 'Помилка завантаження.';
   }
 }
@@ -3316,19 +3454,48 @@ function renderAccountsPagination(total, offset, limit) {
 
 window.openUserFromAccounts = function(userId) { navigate('users'); openUserModal(userId); };
 
-window.accBalanceAdjust = async function(userId, name) {
-  const amtStr = prompt(`Коригування балансу для ${name}\nВкажіть суму (від'ємна — списання, додатна — поповнення):`);
-  if (amtStr === null) return;
-  const amount = parseFloat(amtStr.replace(',', '.'));
-  if (isNaN(amount) || amount === 0) { showToast('Невірна сума', 'error'); return; }
-  const reason = prompt('Причина коригування:') || '';
-  const type = amount >= 0 ? 'credit' : 'deduction';
+let accAdjustUserId = null;
+
+window.accBalanceAdjust = function(userId, name) {
+  accAdjustUserId = userId;
+  document.getElementById('accAdjustTitle').textContent = `Коригування балансу: ${name}`;
+  document.getElementById('accAdjustAmount').value  = '';
+  document.getElementById('accAdjustReason').value  = '';
+  document.getElementById('accAdjustType').value    = 'credit';
+  const msgEl = document.getElementById('accAdjustMsg');
+  msgEl.className = 'form-msg hidden';
+  msgEl.textContent = '';
+  document.getElementById('accAdjustPanel').classList.remove('hidden');
+  document.getElementById('accAdjustAmount').focus();
+};
+
+document.getElementById('accAdjustCancelBtn')?.addEventListener('click', () => {
+  document.getElementById('accAdjustPanel').classList.add('hidden');
+  accAdjustUserId = null;
+});
+
+document.getElementById('accAdjustSubmitBtn')?.addEventListener('click', async () => {
+  if (!accAdjustUserId) return;
+  const amount = parseFloat(document.getElementById('accAdjustAmount').value);
+  const type   = document.getElementById('accAdjustType').value;
+  const reason = document.getElementById('accAdjustReason').value.trim() || 'Коригування адміністратором';
+  const msgEl  = document.getElementById('accAdjustMsg');
+  if (!amount || amount <= 0) {
+    msgEl.textContent = 'Вкажіть коректну суму.';
+    msgEl.className   = 'form-msg error';
+    return;
+  }
   try {
-    await api.adjustUserBalance(userId, { amount: Math.abs(amount), reason, type });
+    const res = await api.adjustUserBalance(accAdjustUserId, { amount, reason, type });
+    msgEl.textContent = `✓ ${type === 'credit' ? 'Поповнено' : 'Списано'} ${fmtMoney(amount)}. Новий баланс: ${fmtMoney(res.data.new_balance)}`;
+    msgEl.className   = 'form-msg success';
     showToast('Баланс скориговано');
     loadAccounts();
-  } catch (err) { showToast(err.message, 'error'); }
-};
+  } catch (err) {
+    msgEl.textContent = err.message;
+    msgEl.className   = 'form-msg error';
+  }
+});
 
 document.getElementById('refreshAccountsBtn')?.addEventListener('click', loadAccounts);
 document.getElementById('accApplyBtn')?.addEventListener('click', () => { accOffset = 0; loadAccounts(); });

@@ -1723,3 +1723,60 @@ tr.bal-selected { background: rgba(200,168,75,.08) !important; }
   height: 10px;
   line-height: 10px;
 }
+
+/* ── QUICK ACTIONS ── */
+.quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+.quick-action-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s, transform .1s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+}
+.quick-action-card:hover {
+  border-color: var(--gold);
+  box-shadow: 0 2px 12px var(--gold-glow);
+  transform: translateY(-2px);
+}
+.qa-icon { font-size: 1.7rem; line-height: 1; }
+.qa-label { font-size: .8rem; font-weight: 600; color: var(--text); }
+
+/* ── DASHBOARD ALERTS ── */
+.dash-alert {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--red);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: .85rem;
+  transition: background .15s;
+}
+.dash-alert:hover { background: var(--surface-2); }
+
+/* ── ACCOUNTS INLINE ADJUST PANEL ── */
+.acc-adjust-panel {
+  background: var(--surface);
+  border: 1px solid var(--gold);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin: 12px 0;
+}
+
+/* ── USERS BULK BAR (reuses .bal-bulk-bar) ── */
+/* already covered by bal-bulk-bar styles */
