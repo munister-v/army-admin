@@ -1278,7 +1278,7 @@
                 </div>
                 <div class="field-group" style="margin:0">
                   <label>Термін (міс.)</label>
-                  <input type="number" id="creditTerm" class="filter-input" placeholder="12" min="1" max="120" />
+                  <input type="number" id="creditTerm" class="filter-input" placeholder="12" min="1" max="120" value="12" />
                 </div>
               </div>
               <div class="field-group" style="margin-top:8px">
@@ -1289,6 +1289,7 @@
                 <label>Призначення кредиту</label>
                 <input type="text" id="creditPurpose" class="filter-input" placeholder="Напр.: житлова програма, авто…" />
               </div>
+              <div id="creditPreview" class="dep-preview hidden" style="margin-top:10px;border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.07)"></div>
               <button class="btn-primary" id="creditSubmitBtn" disabled style="margin-top:12px;width:100%;background:var(--green);border-color:var(--green)">Видати кредит</button>
               <div id="creditMsg" class="form-msg hidden" style="margin-top:8px"></div>
             </div>
@@ -1347,6 +1348,7 @@
                   <button id="depCloseClearUser" type="button">✕</button>
                 </div>
               </div>
+              <div id="depCloseOpenList" class="dep-close-open-list"></div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
                 <div class="field-group" style="margin:0">
                   <label>Тіло депозиту (₴)</label>

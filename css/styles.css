@@ -1947,6 +1947,55 @@ tr.bal-selected { background: rgba(200,168,75,.08) !important; }
   color: var(--text);
 }
 
+.dep-close-open-list {
+  margin-top: 8px;
+}
+.dep-open-loading {
+  font-size: .8rem;
+  color: var(--text-muted);
+}
+.dep-open-empty {
+  font-size: .8rem;
+  color: var(--text-muted);
+  padding: 6px 0;
+}
+.dep-open-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: rgba(234,179,8,.07);
+  border: 1px solid rgba(234,179,8,.2);
+  border-radius: var(--radius);
+  margin-bottom: 5px;
+  font-size: .8rem;
+}
+.dep-open-meta {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+}
+.dep-open-date { color: var(--text-muted); }
+.dep-open-amount { font-weight: 600; color: var(--gold); }
+.dep-open-details { color: var(--text-muted); font-size: .76rem; }
+.dep-open-fill {
+  padding: 3px 9px;
+  font-size: .77rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--gold);
+  background: transparent;
+  color: var(--gold);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .12s, color .12s;
+}
+.dep-open-fill:hover {
+  background: var(--gold);
+  color: #000;
+}
+
 /* ══════════════════════════════════════════════
    TRANSACTION TYPE ICONS
 ══════════════════════════════════════════════ */

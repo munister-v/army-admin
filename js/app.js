@@ -3520,12 +3520,20 @@ function makeFinProductUserSearch(searchId, dropdownId, chipId, nameId, clearId,
     document.getElementById(chipId).classList.add('hidden');
     submitIds.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
   });
-  return { getId: () => _selectedId };
+  return {
+    getId: () => _selectedId,
+    clear() {
+      _selectedId = null;
+      document.getElementById(chipId)?.classList.add('hidden');
+      submitIds.forEach(id => { const el = document.getElementById(id); if (el) el.disabled = true; });
+      if (onSelect) onSelect(null, '');
+    }
+  };
 }
 
-const _creditUser  = makeFinProductUserSearch('creditUserSearch', 'creditUserDropdown', 'creditSelectedChip', 'creditSelectedName', 'creditClearUser', ['creditSubmitBtn']);
+const _creditUser  = makeFinProductUserSearch('creditUserSearch', 'creditUserDropdown', 'creditSelectedChip', 'creditSelectedName', 'creditClearUser', ['creditSubmitBtn'], () => updateCreditPreview());
 const _depOpenUser = makeFinProductUserSearch('depOpenUserSearch', 'depOpenUserDropdown', 'depOpenSelectedChip', 'depOpenSelectedName', 'depOpenClearUser', ['depOpenSubmitBtn'], () => updateDepOpenPreview());
-const _depCloseUser = makeFinProductUserSearch('depCloseUserSearch', 'depCloseUserDropdown', 'depCloseSelectedChip', 'depCloseSelectedName', 'depCloseClearUser', ['depCloseSubmitBtn'], () => updateDepClosePreview());
+const _depCloseUser = makeFinProductUserSearch('depCloseUserSearch', 'depCloseUserDropdown', 'depCloseSelectedChip', 'depCloseSelectedName', 'depCloseClearUser', ['depCloseSubmitBtn'], (uid) => { updateDepClosePreview(); if (uid) loadUserOpenDeposits(uid); });
 
 // Deposit open preview
 function updateDepOpenPreview() {
@@ -3558,6 +3566,73 @@ function updateDepClosePreview() {
   document.getElementById(id)?.addEventListener('input', updateDepClosePreview)
 );
 
+// Clear open-deposits list when user chip is cleared
+document.getElementById('depCloseClearUser')?.addEventListener('click', () => {
+  const listEl = document.getElementById('depCloseOpenList');
+  if (listEl) listEl.innerHTML = '';
+});
+
+// Credit live preview
+function updateCreditPreview() {
+  const amount = parseFloat(document.getElementById('creditAmount')?.value) || 0;
+  const term   = parseInt(document.getElementById('creditTerm')?.value) || 0;
+  const rate   = parseFloat(document.getElementById('creditRate')?.value) || 0;
+  const prev   = document.getElementById('creditPreview');
+  if (!prev) return;
+  if (!amount || !term) { prev.classList.add('hidden'); return; }
+  const totalInterest = amount * (rate / 100) * (term / 12);
+  const totalRepay    = amount + totalInterest;
+  const monthly       = totalRepay / term;
+  prev.innerHTML = `<strong>Щомісяця:</strong> ${fmtMoney(monthly)} · <strong>Відсотки:</strong> ${fmtMoney(totalInterest)} · <strong>Всього до повернення:</strong> ${fmtMoney(totalRepay)}`;
+  prev.classList.remove('hidden');
+}
+['creditAmount', 'creditTerm', 'creditRate'].forEach(id =>
+  document.getElementById(id)?.addEventListener('input', updateCreditPreview)
+);
+
+// Load open deposits for a user from compliance notes
+async function loadUserOpenDeposits(uid) {
+  const listEl = document.getElementById('depCloseOpenList');
+  if (!listEl) return;
+  listEl.innerHTML = '<span class="dep-open-loading">Завантаження депозитів…</span>';
+  try {
+    const data  = await api.complianceGetUser(uid).catch(() => null);
+    const notes = data?.data?.compliance?.notes || data?.notes || '';
+    const opened = [];
+    const openRe  = /\[Депозит відкрито\]\s+([^:]+):\s+([^,]+),\s+(\d+)\s+міс\.,\s+([\d.]+)%,\s+закриття\s+([^,]+),\s+відсотки\s+([^\n\r]+)/g;
+    const closeRe = /\[Депозит закрито\]/g;
+    let closedCount = 0;
+    let m;
+    while (closeRe.exec(notes) !== null) closedCount++;
+    while ((m = openRe.exec(notes)) !== null) {
+      opened.push({ date: m[1].trim(), amount: m[2].trim(), term: m[3], rate: m[4], closeDate: m[5].trim(), interest: m[6].trim() });
+    }
+    // Assume oldest opens are the closed ones; show remaining active
+    const active = opened.slice(closedCount);
+    if (!active.length) {
+      listEl.innerHTML = '<div class="dep-open-empty">Відкритих депозитів не знайдено</div>';
+      return;
+    }
+    listEl.innerHTML = active.map((d, i) => `
+      <div class="dep-open-item">
+        <div class="dep-open-meta">
+          <span class="dep-open-date">${d.date}</span>
+          <span class="dep-open-amount">${d.amount}</span>
+          <span class="dep-open-details">${d.term} міс. · ${d.rate}% · відсотки ${d.interest} · закриття ${d.closeDate}</span>
+        </div>
+        <button class="dep-open-fill" data-body="${d.amount.replace(/[^\d.]/g,'')}" data-interest="${d.interest.replace(/[^\d.]/g,'')}">↓ Заповнити</button>
+      </div>
+    `).join('');
+    listEl.querySelectorAll('.dep-open-fill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.getElementById('depCloseBody').value     = btn.dataset.body;
+        document.getElementById('depCloseInterest').value = btn.dataset.interest;
+        updateDepClosePreview();
+      });
+    });
+  } catch { listEl.innerHTML = ''; }
+}
+
 // Credit submit
 document.getElementById('creditSubmitBtn')?.addEventListener('click', async () => {
   const userId  = _creditUser.getId();
@@ -3569,19 +3644,29 @@ document.getElementById('creditSubmitBtn')?.addEventListener('click', async () =
   const msgEl   = document.getElementById('creditMsg');
   msgEl.classList.add('hidden');
   if (!amount || amount <= 0) { msgEl.textContent = 'Вкажіть суму.'; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden'); return; }
+  const totalInterest = amount * (rate / 100) * (term / 12);
+  const totalRepay    = amount + totalInterest;
+  if (!confirm(`Видати кредит ${fmtMoney(amount)} користувачу?\nЗагальна сума до повернення: ${fmtMoney(totalRepay)}`)) return;
+  const btn = document.getElementById('creditSubmitBtn');
+  const origText = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Обробка…';
   const reason = `Кредит: ${purpose}${term ? `, ${term} міс.` : ''}${rate ? `, ${rate}% річних` : ''}`;
   try {
     const res = await api.adjustUserBalance(userId, { amount, reason, type: 'credit' });
-    // Note in compliance
     const noteText = `[Кредит видано] ${new Date().toLocaleDateString('uk-UA')}: ${fmtMoney(amount)}, ${term} міс., ${rate}% — ${purpose}`;
     await api.complianceUpdateUser(userId, { notes: noteText }).catch(() => {});
-    msgEl.textContent = `✓ Кредит ${fmtMoney(amount)} зараховано. Баланс: ${fmtMoney(res.data?.new_balance)}`;
+    msgEl.textContent = `✓ Кредит ${fmtMoney(amount)} зараховано. Баланс: ${fmtMoney(res.data?.new_balance ?? res.new_balance)}`;
     msgEl.className = 'form-msg success'; msgEl.classList.remove('hidden');
     showToast('Кредит видано');
-    document.getElementById('creditAmount').value = '';
+    document.getElementById('creditAmount').value  = '';
+    document.getElementById('creditTerm').value    = '';
+    document.getElementById('creditRate').value    = '0';
     document.getElementById('creditPurpose').value = '';
+    document.getElementById('creditPreview').classList.add('hidden');
+    _creditUser.clear();
   } catch (err) {
     msgEl.textContent = err.message; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden');
+    btn.textContent = origText; btn.disabled = false;
   }
 });
 
@@ -3595,6 +3680,9 @@ document.getElementById('depOpenSubmitBtn')?.addEventListener('click', async () 
   const msgEl   = document.getElementById('depOpenMsg');
   msgEl.classList.add('hidden');
   if (!amount || amount <= 0) { msgEl.textContent = 'Вкажіть суму.'; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden'); return; }
+  const btn = document.getElementById('depOpenSubmitBtn');
+  const origText = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Обробка…';
   const interest = amount * (rate / 100) * (term / 12);
   const reason = `Відкриття депозиту: ${fmtMoney(amount)}, ${term} міс., ${rate}% (до виплати ${fmtMoney(amount + interest)})`;
   try {
@@ -3602,13 +3690,17 @@ document.getElementById('depOpenSubmitBtn')?.addEventListener('click', async () 
     const closeDate = new Date(); closeDate.setMonth(closeDate.getMonth() + term);
     const noteText = `[Депозит відкрито] ${new Date().toLocaleDateString('uk-UA')}: ${fmtMoney(amount)}, ${term} міс., ${rate}%, закриття ${closeDate.toLocaleDateString('uk-UA')}, відсотки ${fmtMoney(interest)}`;
     await api.complianceUpdateUser(userId, { notes: noteText }).catch(() => {});
-    msgEl.textContent = `✓ Депозит ${fmtMoney(amount)} відкрито. Баланс: ${fmtMoney(res.data?.new_balance)}`;
+    msgEl.textContent = `✓ Депозит ${fmtMoney(amount)} відкрито. Баланс: ${fmtMoney(res.data?.new_balance ?? res.new_balance)}`;
     msgEl.className = 'form-msg success'; msgEl.classList.remove('hidden');
     showToast('Депозит відкрито');
     document.getElementById('depOpenAmount').value = '';
+    document.getElementById('depOpenTerm').value   = '3';
+    document.getElementById('depOpenRate').value   = '12';
     document.getElementById('depOpenPreview').classList.add('hidden');
+    _depOpenUser.clear();
   } catch (err) {
     msgEl.textContent = err.message; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden');
+    btn.textContent = origText; btn.disabled = false;
   }
 });
 
@@ -3624,19 +3716,26 @@ document.getElementById('depCloseSubmitBtn')?.addEventListener('click', async ()
   msgEl.classList.add('hidden');
   if (!body || body <= 0) { msgEl.textContent = 'Вкажіть тіло депозиту.'; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden'); return; }
   const total  = body + interest;
+  const btn = document.getElementById('depCloseSubmitBtn');
+  const origText = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Обробка…';
   const reason = `Закриття депозиту (${reasonLabels[closeReason] || closeReason}): тіло ${fmtMoney(body)} + відсотки ${fmtMoney(interest)}`;
   try {
     const res = await api.adjustUserBalance(userId, { amount: total, reason, type: 'credit' });
     const noteText = `[Депозит закрито] ${new Date().toLocaleDateString('uk-UA')}: виплачено ${fmtMoney(total)} (${reasonLabels[closeReason]})`;
     await api.complianceUpdateUser(userId, { notes: noteText }).catch(() => {});
-    msgEl.textContent = `✓ Депозит закрито. Виплачено ${fmtMoney(total)}. Баланс: ${fmtMoney(res.data?.new_balance)}`;
+    msgEl.textContent = `✓ Депозит закрито. Виплачено ${fmtMoney(total)}. Баланс: ${fmtMoney(res.data?.new_balance ?? res.new_balance)}`;
     msgEl.className = 'form-msg success'; msgEl.classList.remove('hidden');
     showToast('Депозит закрито та виплачено');
     document.getElementById('depCloseBody').value     = '';
-    document.getElementById('depCloseInterest').value = '0';
+    document.getElementById('depCloseInterest').value = '';
     document.getElementById('depClosePreview').classList.add('hidden');
+    const listEl = document.getElementById('depCloseOpenList');
+    if (listEl) listEl.innerHTML = '';
+    _depCloseUser.clear();
   } catch (err) {
     msgEl.textContent = err.message; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden');
+    btn.textContent = origText; btn.disabled = false;
   }
 });
 
