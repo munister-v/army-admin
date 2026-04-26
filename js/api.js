@@ -57,6 +57,8 @@ class AdminAPI {
     return this.get(`/api/admin/users/${id}/transactions?limit=${limit}`);
   }
   updateRole(id, role) { return this.patch(`/api/admin/users/${id}/role`, { role }); }
+  blockUser(id, reason = '')   { return this.patch(`/api/admin/users/${id}/block`, { reason }); }
+  unblockUser(id)              { return this.patch(`/api/admin/users/${id}/unblock`, {}); }
 
   listTransactions(params = {}) {
     const q = new URLSearchParams(params).toString();

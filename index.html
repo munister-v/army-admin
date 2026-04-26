@@ -172,6 +172,7 @@
     <section id="page-users" class="page">
       <div class="page-header">
         <h2>Користувачі</h2>
+        <button class="btn-secondary" id="exportUsersBtn">⬇ Експорт CSV</button>
       </div>
       <div class="filters-bar">
         <input type="text" id="userSearch" placeholder="Пошук за ім'ям, телефоном, email…" class="filter-input" />
@@ -254,6 +255,28 @@
               <button class="btn-primary" id="mPayoutBtn">Нарахувати</button>
             </div>
             <div id="payoutMsg" class="form-msg hidden"></div>
+          </div>
+          <div class="modal-section">
+            <div class="section-title" style="margin:0 0 12px">Поповнення рахунку</div>
+            <div class="inline-form">
+              <input type="number" id="mTopupAmount" class="filter-input" placeholder="Сума, грн" min="0.01" step="0.01" />
+              <input type="text" id="mTopupReason" class="filter-input" placeholder="Причина поповнення" />
+              <button class="btn-primary" id="mTopupBtn">Поповнити</button>
+            </div>
+            <div id="mTopupMsg" class="form-msg hidden"></div>
+          </div>
+          <div class="modal-section">
+            <div class="section-title" style="margin:0 0 12px">Управління доступом</div>
+            <div id="mBlockStatus" style="margin-bottom:10px;font-size:.85rem;color:var(--text-muted)"></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn-secondary" id="mBlockBtn" style="color:var(--red);border-color:var(--red)">Заблокувати</button>
+              <button class="btn-secondary" id="mUnblockBtn" style="color:var(--green)">Розблокувати</button>
+            </div>
+            <div id="mBlockMsg" class="form-msg hidden" style="margin-top:8px"></div>
+          </div>
+          <div class="modal-section">
+            <div class="section-title" style="margin:0 0 12px">Картки</div>
+            <button class="btn-secondary" id="mIssueCardBtn">+ Видати картку</button>
           </div>
         </div>
         <!-- TAB: COMPLIANCE -->
@@ -823,6 +846,7 @@
       <!-- Tab switcher -->
       <div class="modal-tabs fin-tabs" style="margin:20px 0 0">
         <button class="modal-tab active" data-fin-tab="single">Нарахування</button>
+        <button class="modal-tab" data-fin-tab="topup">Поповнення рахунку</button>
         <button class="modal-tab" data-fin-tab="batch">Пакетне нарахування</button>
         <button class="modal-tab" data-fin-tab="dispatch">Диспетч-журнал</button>
       </div>
@@ -862,6 +886,38 @@
           </div>
           <div id="payoutFormMsg" class="form-msg hidden"></div>
           <button class="btn-primary gold" id="submitPayoutBtn" disabled>Нарахувати</button>
+        </div>
+      </div>
+
+      <!-- Tab: Direct Topup -->
+      <div class="fin-tab-content hidden" id="fin-tab-topup">
+        <div class="form-card" style="margin-top:16px;max-width:600px">
+          <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:16px">
+            Пряме поповнення рахунку — зараховує кошти безпосередньо на баланс без створення виплати.
+          </p>
+          <div class="field-group">
+            <label>Користувач (пошук за ім'ям / телефоном)</label>
+            <div class="user-search-wrap">
+              <input type="text" id="topupUserSearch" class="filter-input" placeholder="Почніть вводити…" autocomplete="off" />
+              <div id="topupUserDropdown" class="user-dropdown hidden"></div>
+            </div>
+            <div id="topupSelectedChip" class="selected-user hidden">
+              <span id="topupSelectedName">—</span>
+              <button id="topupClearUser">✕</button>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-group">
+              <label>Сума поповнення (грн)</label>
+              <input type="number" id="topupAmount" class="filter-input" placeholder="0.00" min="0.01" step="0.01" />
+            </div>
+          </div>
+          <div class="field-group">
+            <label>Причина / коментар</label>
+            <input type="text" id="topupReason" class="filter-input" placeholder="Поповнення рахунку" />
+          </div>
+          <div id="topupFormMsg" class="form-msg hidden"></div>
+          <button class="btn-primary gold" id="submitTopupBtn" disabled>Поповнити рахунок</button>
         </div>
       </div>
 

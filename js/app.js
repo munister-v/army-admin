@@ -426,6 +426,7 @@ async function loadUsers() {
     if (role)   params.role   = role;
     const res = await api.listUsers(params);
     const users = res.data || [];
+    lastUsersRows = users;
     const empty = document.getElementById('usersEmpty');
     const tbody = document.getElementById('usersBody');
     if (!users.length) {
@@ -460,10 +461,20 @@ async function loadUsers() {
 }
 
 // Debounced search
+let lastUsersRows = [];
+
 const debouncedSearch = debounce(loadUsers, 380);
 document.getElementById('userSearch').addEventListener('input', debouncedSearch);
 document.getElementById('userRoleFilter').addEventListener('change', loadUsers);
 document.getElementById('searchUsersBtn').addEventListener('click', loadUsers);
+document.getElementById('exportUsersBtn')?.addEventListener('click', () => {
+  if (!lastUsersRows.length) { showToast('Спочатку завантажте список', 'error'); return; }
+  let csv = 'ID,ПІБ,Телефон,Email,Роль,KYC,AML,Зареєстровано\n';
+  lastUsersRows.forEach(u => {
+    csv += `"${u.id}","${u.full_name || ''}","${u.phone || ''}","${u.email || ''}","${u.role}","${u.kyc_status || ''}","${u.aml_flag ? 'так' : 'ні'}","${u.created_at || ''}"\n`;
+  });
+  downloadCsv('users_export.csv', csv);
+});
 
 /* ── USER MODAL ── */
 function switchModalTab(tab) {
@@ -483,13 +494,16 @@ async function openUserModal(userId) {
   // Reset tabs to info
   switchModalTab('info');
   // Reset action messages
-  ['roleChangeMsg', 'payoutMsg'].forEach(id => {
+  ['roleChangeMsg', 'payoutMsg', 'mTopupMsg', 'mBlockMsg'].forEach(id => {
     const el = document.getElementById(id);
-    el.className = 'form-msg hidden';
-    el.textContent = '';
+    if (el) { el.className = 'form-msg hidden'; el.textContent = ''; }
   });
   document.getElementById('mPayoutAmount').value = '';
   document.getElementById('mPayoutTitle').value  = '';
+  document.getElementById('mTopupAmount').value  = '';
+  document.getElementById('mTopupReason').value  = '';
+  const blockStatus = document.getElementById('mBlockStatus');
+  if (blockStatus) { blockStatus.textContent = ''; blockStatus.style.color = ''; }
 
   try {
     const res = await api.getUser(userId);
@@ -651,6 +665,78 @@ document.getElementById('mPayoutBtn').addEventListener('click', async () => {
     msgEl.textContent = err.message;
     msgEl.className   = 'form-msg error';
   }
+});
+
+document.getElementById('mTopupBtn').addEventListener('click', async () => {
+  if (!modalUserId) return;
+  const amount = parseFloat(document.getElementById('mTopupAmount').value);
+  const reason = document.getElementById('mTopupReason').value.trim() || 'Поповнення рахунку';
+  const msgEl  = document.getElementById('mTopupMsg');
+  if (!amount || amount <= 0) {
+    msgEl.textContent = 'Вкажіть коректну суму.';
+    msgEl.className   = 'form-msg error';
+    return;
+  }
+  try {
+    const res = await api.adjustUserBalance(modalUserId, { amount, reason, type: 'credit' });
+    msgEl.textContent = `✓ Рахунок поповнено на ${fmtMoney(amount)}. Баланс: ${fmtMoney(res.data.new_balance)}`;
+    msgEl.className   = 'form-msg success';
+    document.getElementById('mAccBalance').textContent = fmtMoney(res.data.new_balance);
+    document.getElementById('mTopupAmount').value = '';
+    document.getElementById('mTopupReason').value = '';
+    showToast('Рахунок поповнено', 'success');
+  } catch (err) {
+    msgEl.textContent = err.message;
+    msgEl.className   = 'form-msg error';
+  }
+});
+
+document.getElementById('mBlockBtn').addEventListener('click', async () => {
+  if (!modalUserId) return;
+  const reason = prompt('Причина блокування:');
+  if (reason === null) return;
+  const msgEl = document.getElementById('mBlockMsg');
+  try {
+    await api.blockUser(modalUserId, reason);
+    msgEl.textContent = '✓ Користувача заблоковано.';
+    msgEl.className   = 'form-msg success';
+    document.getElementById('mBlockStatus').textContent = '⛔ Заблоковано';
+    document.getElementById('mBlockStatus').style.color = 'var(--red)';
+    showToast('Користувача заблоковано', 'success');
+    loadUsers();
+  } catch (err) {
+    msgEl.textContent = err.message;
+    msgEl.className   = 'form-msg error';
+  }
+});
+
+document.getElementById('mUnblockBtn').addEventListener('click', async () => {
+  if (!modalUserId) return;
+  const msgEl = document.getElementById('mBlockMsg');
+  try {
+    await api.unblockUser(modalUserId);
+    msgEl.textContent = '✓ Користувача розблоковано.';
+    msgEl.className   = 'form-msg success';
+    document.getElementById('mBlockStatus').textContent = '✓ Активний';
+    document.getElementById('mBlockStatus').style.color = 'var(--green)';
+    showToast('Користувача розблоковано', 'success');
+    loadUsers();
+  } catch (err) {
+    msgEl.textContent = err.message;
+    msgEl.className   = 'form-msg error';
+  }
+});
+
+document.getElementById('mIssueCardBtn').addEventListener('click', async () => {
+  if (!modalUserId) return;
+  closeUserModal();
+  try {
+    const res = await api.getUser(modalUserId);
+    const u = res.data;
+    setIssueCardUser(u);
+  } catch {}
+  document.getElementById('issueCardMsg').classList.add('hidden');
+  document.getElementById('issueCardModal').classList.remove('hidden');
 });
 
 /* ══════════════════════════════════════════════
@@ -2413,6 +2499,67 @@ document.getElementById('refreshPayoutsBtn').addEventListener('click', () => {
   loadDispatch();
 });
 
+// ── Direct Topup ─────────────────────────────────────────────────────────────
+let selectedTopupUser = null;
+
+const debouncedTopupSearch = debounce(async (q) => {
+  if (q.length < 2) { document.getElementById('topupUserDropdown').classList.add('hidden'); return; }
+  try {
+    const res   = await api.listUsers({ search: q });
+    const users = (res.data || []).slice(0, 8);
+    const dd    = document.getElementById('topupUserDropdown');
+    if (!users.length) { dd.classList.add('hidden'); return; }
+    dd.innerHTML = users.map(u => `
+      <div class="dropdown-item" onclick="selectTopupUser(${u.id}, '${escHtml(u.full_name)}', '${escHtml(u.phone || u.email || '')}')">
+        <div class="d-name">${escHtml(u.full_name)}</div>
+        <div class="d-sub">${escHtml(u.phone || '')} ${escHtml(u.email || '')}</div>
+      </div>
+    `).join('');
+    dd.classList.remove('hidden');
+  } catch {}
+}, 350);
+
+document.getElementById('topupUserSearch').addEventListener('input', e => debouncedTopupSearch(e.target.value.trim()));
+
+function selectTopupUser(id, name, sub) {
+  selectedTopupUser = id;
+  document.getElementById('topupUserSearch').value = '';
+  document.getElementById('topupUserDropdown').classList.add('hidden');
+  document.getElementById('topupSelectedChip').classList.remove('hidden');
+  document.getElementById('topupSelectedName').textContent = `${name}${sub ? ' — ' + sub : ''}`;
+  document.getElementById('submitTopupBtn').disabled = false;
+}
+window.selectTopupUser = selectTopupUser;
+
+document.getElementById('topupClearUser').addEventListener('click', () => {
+  selectedTopupUser = null;
+  document.getElementById('topupSelectedChip').classList.add('hidden');
+  document.getElementById('submitTopupBtn').disabled = true;
+});
+
+document.getElementById('submitTopupBtn').addEventListener('click', async () => {
+  if (!selectedTopupUser) return;
+  const amount = parseFloat(document.getElementById('topupAmount').value);
+  const reason = document.getElementById('topupReason').value.trim() || 'Поповнення рахунку';
+  const msgEl  = document.getElementById('topupFormMsg');
+  if (!amount || amount <= 0) {
+    msgEl.textContent = 'Вкажіть коректну суму.';
+    msgEl.className   = 'form-msg error';
+    return;
+  }
+  try {
+    const res = await api.adjustUserBalance(selectedTopupUser, { amount, reason, type: 'credit' });
+    msgEl.textContent = `✓ Рахунок поповнено на ${fmtMoney(amount)}. Новий баланс: ${fmtMoney(res.data.new_balance)}`;
+    msgEl.className   = 'form-msg success';
+    document.getElementById('topupAmount').value = '';
+    document.getElementById('topupReason').value = '';
+    showToast('Рахунок поповнено', 'success');
+  } catch (err) {
+    msgEl.textContent = err.message;
+    msgEl.className   = 'form-msg error';
+  }
+});
+
 // ── Dispatch journal ──────────────────────────────────────────────────────────
 function renderDispatchPagination(total, offset, limit) {
   const bar = document.getElementById('dispatchPagination');
@@ -3175,8 +3322,9 @@ window.accBalanceAdjust = async function(userId, name) {
   const amount = parseFloat(amtStr.replace(',', '.'));
   if (isNaN(amount) || amount === 0) { showToast('Невірна сума', 'error'); return; }
   const reason = prompt('Причина коригування:') || '';
+  const type = amount >= 0 ? 'credit' : 'deduction';
   try {
-    await api.adjustUserBalance(userId, { amount, reason });
+    await api.adjustUserBalance(userId, { amount: Math.abs(amount), reason, type });
     showToast('Баланс скориговано');
     loadAccounts();
   } catch (err) { showToast(err.message, 'error'); }
@@ -3566,7 +3714,7 @@ window.balZeroOne = async function(userId, name, bal) {
   if (bal === 0) { showToast('Баланс вже нульовий', 'error'); return; }
   if (!confirm(`Обнулити баланс ${name}?\nПоточний: ${fmtMoney(bal)}`)) return;
   try {
-    await api.adjustUserBalance(userId, { amount: -bal, reason: 'manual zero-out' });
+    await api.adjustUserBalance(userId, { amount: Math.abs(bal), reason: 'manual zero-out', type: 'deduction' });
     showToast(`Баланс ${name} обнулено`);
     loadBalances();
   } catch (err) { showToast(err.message, 'error'); }
@@ -3578,8 +3726,9 @@ window.balAdjustOne = async function(userId, name) {
   const amount = parseFloat(s.replace(',', '.'));
   if (isNaN(amount) || amount === 0) { showToast('Невірна сума', 'error'); return; }
   const reason = prompt('Причина:') || 'manual adjust';
+  const type = amount >= 0 ? 'credit' : 'deduction';
   try {
-    await api.adjustUserBalance(userId, { amount, reason });
+    await api.adjustUserBalance(userId, { amount: Math.abs(amount), reason, type });
     showToast('Баланс скориговано');
     loadBalances();
   } catch (err) { showToast(err.message, 'error'); }
@@ -3604,10 +3753,11 @@ async function balBulkOp(op) {
   for (const uid of ids) {
     const u = balAllRows.find(r => r.id === uid);
     const curBal = u?.account?.balance ?? 0;
-    let amount = op === 'zero' ? -curBal : op === 'add' ? amountVal : -amountVal;
     if (op === 'zero' && curBal === 0) { done++; continue; }
+    const amount = op === 'zero' ? Math.abs(curBal) : amountVal;
+    const type = op === 'add' ? 'credit' : 'deduction';
     try {
-      await api.adjustUserBalance(uid, { amount, reason: `bulk ${op}` });
+      await api.adjustUserBalance(uid, { amount, reason: `bulk ${op}`, type });
       done++;
     } catch { failed++; }
     msg.textContent = `Обробка ${done + failed}/${ids.length}…`;
@@ -5118,12 +5268,12 @@ async function simFireTx(item) {
     if (txDef.type === 'payout') {
       await api.createPayout({ user_id: userId, amount: amt, payout_type: txDef.subtype || 'other', title: label });
     } else if (txDef.type === 'deposit') {
-      await api.adjustUserBalance(userId, { amount: amt, reason: label });
+      await api.adjustUserBalance(userId, { amount: amt, reason: label, type: 'credit' });
     } else if (txDef.type === 'deduction') {
-      await api.adjustUserBalance(userId, { amount: -amt, reason: label });
+      await api.adjustUserBalance(userId, { amount: amt, reason: label, type: 'deduction' });
     } else if (txDef.type === 'transfer' && targetId) {
-      await api.adjustUserBalance(userId,   { amount: -amt, reason: `${label} → ${targetName || targetId}` });
-      await api.adjustUserBalance(targetId, { amount:  amt, reason: `${label} ← ${userName}` });
+      await api.adjustUserBalance(userId,   { amount: amt, reason: `${label} → ${targetName || targetId}`, type: 'deduction' });
+      await api.adjustUserBalance(targetId, { amount: amt, reason: `${label} ← ${userName}`, type: 'credit' });
     }
     ok = true;
     simTxTotal++;
@@ -5295,7 +5445,7 @@ document.getElementById('simZeroAllBtn')?.addEventListener('click', async () => 
     let done = 0;
     for (const u of users) {
       const bal = u.account.balance;
-      if (bal !== 0) { await api.adjustUserBalance(u.id, { amount: -bal, reason: 'Обнулення симулятора' }); done++; }
+      if (bal !== 0) { await api.adjustUserBalance(u.id, { amount: Math.abs(bal), reason: 'Обнулення симулятора', type: 'deduction' }); done++; }
       msg.textContent = `Обнулення ${done}/${users.length}…`;
     }
     msg.textContent = `Обнулено ${done} рахунків.`;
