@@ -1787,3 +1787,74 @@ tr.bal-selected { background: rgba(200,168,75,.08) !important; }
 
 /* ── USERS BULK BAR (reuses .bal-bulk-bar) ── */
 /* already covered by bal-bulk-bar styles */
+
+/* ── DASHBOARD TOP BALANCES WIDGET ── */
+.dash-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 640px) {
+  .dash-two-col { grid-template-columns: 1fr; }
+}
+
+.top-balances-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.top-bal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  transition: background .15s;
+}
+.top-bal-row:hover { background: var(--surface-2); }
+
+.top-bal-rank {
+  font-size: .72rem;
+  color: var(--gold);
+  font-weight: 700;
+  min-width: 24px;
+}
+.top-bal-name {
+  flex: 1;
+  font-size: .83rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.top-bal-amount {
+  font-size: .83rem;
+  font-weight: 600;
+  color: var(--green);
+  white-space: nowrap;
+}
+
+.today-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+.today-stat {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.today-stat-label {
+  font-size: .72rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.today-stat-val {
+  font-size: 1rem;
+  font-weight: 600;
+}
+.today-stat-val.green { color: var(--green); }
+.today-stat-val.gold  { color: var(--gold);  }

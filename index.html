@@ -199,6 +199,18 @@
         <div id="dashAlertsBody" style="display:flex;flex-direction:column;gap:8px;margin-top:10px"></div>
       </div>
 
+      <!-- Top balances widget -->
+      <div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:16px" class="dash-two-col">
+        <div>
+          <div class="section-title">Топ 5 за балансом</div>
+          <div id="dashTopBalances" class="top-balances-list"></div>
+        </div>
+        <div>
+          <div class="section-title">Активність сьогодні</div>
+          <div id="dashTodayStats" class="today-stats-grid"></div>
+        </div>
+      </div>
+
       <div class="section-title" style="margin-top:24px">Останні транзакції</div>
       <div class="table-wrap">
         <table class="data-table" id="recentTxTable">
@@ -352,14 +364,30 @@
         <!-- TAB: BALANCE HISTORY -->
         <div class="modal-tab-content hidden" id="tab-balance">
           <div class="modal-section">
-            <div class="section-title" style="margin:0 0 12px">Останні зміни балансу</div>
+            <div class="section-title" style="margin:0 0 12px">Статистика транзакцій</div>
             <div id="mBalLoading" style="text-align:center;color:var(--text-muted);font-size:.85rem;padding:20px">Завантаження…</div>
             <div id="mBalWrap" style="display:none">
               <div class="modal-row" style="font-weight:600;margin-bottom:6px">
                 <span>Поточний баланс</span>
                 <span id="mBalCurrent" style="color:var(--gold)">—</span>
               </div>
-              <div class="table-wrap" style="max-height:320px;overflow-y:auto">
+              <!-- Stats summary grid -->
+              <div id="mBalStatsGrid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
+                <div class="registry-card" style="padding:10px 12px">
+                  <div class="registry-label" style="font-size:.72rem">Надходження</div>
+                  <div class="registry-value green" id="mBalTotalIn" style="font-size:1rem">—</div>
+                </div>
+                <div class="registry-card" style="padding:10px 12px">
+                  <div class="registry-label" style="font-size:.72rem">Витрати</div>
+                  <div class="registry-value red" id="mBalTotalOut" style="font-size:1rem">—</div>
+                </div>
+                <div class="registry-card" style="padding:10px 12px">
+                  <div class="registry-label" style="font-size:.72rem">Транзакцій</div>
+                  <div class="registry-value" id="mBalTxCount" style="font-size:1rem">—</div>
+                </div>
+              </div>
+              <div class="section-title" style="margin:0 0 8px;font-size:.78rem">Останні операції</div>
+              <div class="table-wrap" style="max-height:280px;overflow-y:auto">
                 <table class="data-table">
                   <thead><tr><th>Дата</th><th>Тип</th><th>Сума</th><th>Опис</th></tr></thead>
                   <tbody id="mBalBody"></tbody>
@@ -938,6 +966,7 @@
         <button class="modal-tab active" data-fin-tab="single">Нарахування</button>
         <button class="modal-tab" data-fin-tab="topup">Поповнення рахунку</button>
         <button class="modal-tab" data-fin-tab="batch">Пакетне нарахування</button>
+        <button class="modal-tab" data-fin-tab="csv">CSV Імпорт</button>
         <button class="modal-tab" data-fin-tab="dispatch">Диспетч-журнал</button>
       </div>
 
@@ -1049,6 +1078,36 @@
         </div>
       </div>
 
+      <!-- Tab: CSV Import -->
+      <div class="fin-tab-content hidden" id="fin-tab-csv">
+        <div class="form-card" style="margin-top:16px;max-width:700px">
+          <div class="section-title" style="margin:0 0 12px">Імпорт виплат з CSV</div>
+          <p style="font-size:.83rem;color:var(--text-muted);margin:0 0 14px">
+            Формат файлу: <code style="font-size:.8rem">user_id,amount,type,title</code><br>
+            Типи: <code style="font-size:.8rem">combat / salary / bonus / other</code><br>
+            Перший рядок — заголовок (пропускається автоматично якщо не число).
+          </p>
+          <div class="field-group">
+            <label>CSV файл</label>
+            <input type="file" id="csvImportFile" class="filter-input" accept=".csv,text/csv" style="cursor:pointer" />
+          </div>
+          <button class="btn-secondary" id="csvParseBtn" style="margin-top:8px">Завантажити та перевірити</button>
+          <div id="csvParseMsg" class="form-msg hidden" style="margin-top:8px"></div>
+          <div id="csvPreviewWrap" class="hidden" style="margin-top:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span id="csvPreviewCount" style="font-size:.85rem;color:var(--text-muted)"></span>
+              <button class="btn-primary gold" id="csvImportToBatchBtn">Додати до пакету →</button>
+            </div>
+            <div class="table-wrap" style="max-height:280px;overflow-y:auto">
+              <table class="data-table" style="font-size:.8rem">
+                <thead><tr><th>#</th><th>User ID</th><th>Сума</th><th>Тип</th><th>Призначення</th><th>Статус</th></tr></thead>
+                <tbody id="csvPreviewBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Tab: Dispatch journal -->
       <div class="fin-tab-content hidden" id="fin-tab-dispatch">
         <div class="section-title" style="margin-top:16px">Журнал виплат</div>
@@ -1087,6 +1146,13 @@
         <h2>Картки користувачів</h2>
         <button class="btn-primary" id="issueCardOpenBtn" style="padding:8px 16px;font-size:.82rem">+ Видати картку</button>
       </div>
+      <!-- Bulk bar -->
+      <div id="cardsBulkBar" class="bulk-bar hidden">
+        <span id="cardsBulkCount" style="font-weight:600;min-width:80px">0 обрано</span>
+        <button class="btn-secondary" id="cardsBulkBlockBtn" style="color:var(--red);border-color:var(--red);font-size:.82rem">Заблокувати</button>
+        <button class="btn-secondary" id="cardsBulkUnblockBtn" style="color:var(--green);border-color:var(--green);font-size:.82rem">Розблокувати</button>
+        <button class="btn-ghost" id="cardsClearSelBtn" style="font-size:.8rem">✕ Скасувати</button>
+      </div>
       <div class="tx-registry-grid" id="cardsStatsGrid">
         <div class="registry-card"><div class="registry-label">Всього</div><div class="registry-value" id="cardStatTotal">—</div></div>
         <div class="registry-card"><div class="registry-label">Активні</div><div class="registry-value green" id="cardStatActive">—</div></div>
@@ -1108,9 +1174,10 @@
       <div class="table-wrap">
         <table class="data-table" id="cardsTable">
           <thead><tr>
+            <th style="width:32px"><input type="checkbox" id="cardsSelectAllChk" title="Обрати всі" /></th>
             <th>ID</th><th>Картка</th><th>Тип</th><th>Дизайн</th><th>Власник</th><th>Рахунок</th><th>Статус</th><th>Видано</th><th>Дійсна до</th><th>Дії</th>
           </tr></thead>
-          <tbody id="cardsBody"><tr><td colspan="10" class="empty-state">Завантаження…</td></tr></tbody>
+          <tbody id="cardsBody"><tr><td colspan="11" class="empty-state">Завантаження…</td></tr></tbody>
         </table>
       </div>
       <div class="pagination-bar" id="cardsPagination"></div>
@@ -1204,19 +1271,44 @@
     <section id="page-audit" class="page">
       <div class="page-header">
         <h2>Журнал аудиту</h2>
-        <button class="btn-refresh" id="refreshAudit">
-          <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
-          Оновити
-        </button>
+        <div style="display:flex;gap:8px">
+          <button class="btn-secondary" id="exportAuditCsvBtn" style="font-size:.8rem;padding:6px 12px">↓ CSV</button>
+          <button class="btn-refresh" id="refreshAudit">
+            <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
+            Оновити
+          </button>
+        </div>
+      </div>
+      <div class="filters-bar wrap">
+        <input type="text" id="auditUserIdFilter" class="filter-input" placeholder="User ID" style="max-width:120px" />
+        <select id="auditActionFilter" class="filter-select">
+          <option value="">Всі події</option>
+          <option value="login">Вхід</option>
+          <option value="logout">Вихід</option>
+          <option value="register">Реєстрація</option>
+          <option value="payout_received">Виплата</option>
+          <option value="admin_payout">Адмін: виплата</option>
+          <option value="admin_role_change">Зміна ролі</option>
+          <option value="donation">Донат</option>
+          <option value="transfer_out">Переказ (вих.)</option>
+          <option value="transfer_in">Переказ (вх.)</option>
+          <option value="deposit">Депозит</option>
+          <option value="withdrawal">Зняття</option>
+        </select>
+        <input type="date" id="auditDateFrom" class="filter-input" />
+        <input type="date" id="auditDateTo" class="filter-input" />
+        <button class="btn-secondary" id="applyAuditFilterBtn">Фільтрувати</button>
+        <button class="btn-secondary" id="clearAuditFilterBtn">Скинути</button>
       </div>
       <div class="table-wrap">
         <table class="data-table" id="auditTable">
           <thead><tr>
             <th>Дата</th><th>User ID</th><th>Подія</th><th>Деталі</th>
           </tr></thead>
-          <tbody id="auditBody"></tbody>
+          <tbody id="auditBody"><tr><td colspan="4" class="empty-state">Завантаження…</td></tr></tbody>
         </table>
       </div>
+      <div class="pagination-bar" id="auditPagination"></div>
     </section>
 
     <!-- ── ACCOUNTS PAGE ── -->

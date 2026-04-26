@@ -416,6 +416,43 @@ async function loadDashboard() {
   }
 
   loadDashboardAlerts();
+  loadDashboardTopBalances();
+}
+
+async function loadDashboardTopBalances() {
+  const topEl   = document.getElementById('dashTopBalances');
+  const todayEl = document.getElementById('dashTodayStats');
+  if (!topEl) return;
+  try {
+    const [accRes, statsRes] = await Promise.all([
+      api.listAccounts({ limit: 20 }),
+      api.stats(),
+    ]);
+    const users = (accRes.users || accRes.data || [])
+      .filter(u => (u.account?.balance || 0) > 0)
+      .sort((a, b) => (b.account?.balance || 0) - (a.account?.balance || 0))
+      .slice(0, 5);
+    topEl.innerHTML = users.length
+      ? users.map((u, i) => {
+          const bal = u.account?.balance || 0;
+          return `<div class="top-bal-row" onclick="navigate('users')" style="cursor:pointer">
+            <span class="top-bal-rank">#${i + 1}</span>
+            <span class="top-bal-name">${escHtml(u.full_name || '—')}</span>
+            <span class="top-bal-amount">${fmtMoney(bal)}</span>
+          </div>`;
+        }).join('')
+      : '<div style="color:var(--text-muted);font-size:.82rem;padding:8px 0">Немає даних</div>';
+
+    const d = statsRes.data || {};
+    if (todayEl) {
+      todayEl.innerHTML = `
+        <div class="today-stat"><div class="today-stat-label">Користувачів</div><div class="today-stat-val">${d.total_users ?? '—'}</div></div>
+        <div class="today-stat"><div class="today-stat-label">Транзакцій</div><div class="today-stat-val">${d.total_tx ?? '—'}</div></div>
+        <div class="today-stat"><div class="today-stat-label">Виплачено</div><div class="today-stat-val green">${d.total_payouts != null ? fmtMoney(d.total_payouts) : '—'}</div></div>
+        <div class="today-stat"><div class="today-stat-label">Донати</div><div class="today-stat-val gold">${d.total_donations != null ? fmtMoney(d.total_donations) : '—'}</div></div>
+      `;
+    }
+  } catch { topEl.innerHTML = '<div style="color:var(--text-muted);font-size:.82rem">Помилка завантаження</div>'; }
 }
 
 async function loadDashboardAlerts() {
@@ -731,9 +768,19 @@ async function loadModalBalanceHistory(userId) {
     wrap.style.display    = 'block';
     const balance = userRes.data?.account?.balance ?? null;
     document.getElementById('mBalCurrent').textContent = balance !== null ? fmtMoney(balance) : '—';
-    const txs = (txRes.data || []).filter(tx =>
-      tx.direction === 'in' || tx.direction === 'out'
-    );
+    const allTxs = txRes.data || [];
+    const txs = allTxs.filter(tx => tx.direction === 'in' || tx.direction === 'out');
+
+    // Stats
+    const totalIn  = txs.filter(t => t.direction === 'in').reduce((s, t) => s + Math.abs(t.amount || 0), 0);
+    const totalOut = txs.filter(t => t.direction === 'out').reduce((s, t) => s + Math.abs(t.amount || 0), 0);
+    const inEl  = document.getElementById('mBalTotalIn');
+    const outEl = document.getElementById('mBalTotalOut');
+    const cntEl = document.getElementById('mBalTxCount');
+    if (inEl)  inEl.textContent  = fmtMoney(totalIn);
+    if (outEl) outEl.textContent = fmtMoney(totalOut);
+    if (cntEl) cntEl.textContent = txs.length;
+
     if (!txs.length) {
       document.getElementById('mBalBody').innerHTML = '<tr><td colspan="4" class="empty-state">Транзакцій не знайдено.</td></tr>';
       return;
@@ -3052,38 +3099,187 @@ document.getElementById('submitBatchBtn').addEventListener('click', async () => 
   }, 1800);
 });
 
+// ── CSV Import ────────────────────────────────────────────────────────────────
+let _csvParsedRows = [];
+
+document.getElementById('csvParseBtn')?.addEventListener('click', () => {
+  const file = document.getElementById('csvImportFile')?.files?.[0];
+  const msgEl = document.getElementById('csvParseMsg');
+  const preview = document.getElementById('csvPreviewWrap');
+  msgEl.classList.add('hidden');
+  preview?.classList.add('hidden');
+  if (!file) { msgEl.textContent = 'Оберіть файл.'; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden'); return; }
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const text  = e.target.result;
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) { msgEl.textContent = 'Файл порожній.'; msgEl.className = 'form-msg error'; msgEl.classList.remove('hidden'); return; }
+
+    const VALID_TYPES = new Set(['combat', 'salary', 'bonus', 'other']);
+    _csvParsedRows = [];
+    const errors = [];
+    // skip header row if first cell is not a number
+    const startIdx = isNaN(parseInt(lines[0].split(',')[0])) ? 1 : 0;
+
+    lines.slice(startIdx).forEach((line, i) => {
+      const parts = line.split(',');
+      const userId = parseInt(parts[0]);
+      const amount = parseFloat(parts[1]);
+      const type   = (parts[2] || 'other').trim().toLowerCase();
+      const title  = (parts.slice(3).join(',') || '').trim().replace(/^"|"$/g, '');
+      if (!userId || isNaN(userId))          { errors.push(`Рядок ${startIdx + i + 1}: невірний user_id`); return; }
+      if (!amount || amount <= 0 || isNaN(amount)) { errors.push(`Рядок ${startIdx + i + 1}: невірна сума`); return; }
+      _csvParsedRows.push({
+        lineNum: startIdx + i + 1,
+        userId,
+        amount,
+        type: VALID_TYPES.has(type) ? type : 'other',
+        title: title || 'Виплата',
+        ok: true,
+      });
+    });
+
+    if (errors.length) {
+      msgEl.textContent = `Помилки: ${errors.join('; ')}`;
+      msgEl.className = 'form-msg error';
+      msgEl.classList.remove('hidden');
+      if (!_csvParsedRows.length) return;
+    }
+
+    const PAYOUT_LABELS = { combat: 'Бойова', salary: 'Забезп.', bonus: 'Бонус', other: 'Інше' };
+    document.getElementById('csvPreviewBody').innerHTML = _csvParsedRows.map(r => `
+      <tr>
+        <td style="color:var(--text-muted)">${r.lineNum}</td>
+        <td>${r.userId}</td>
+        <td style="font-weight:600">${fmtMoney(r.amount)}</td>
+        <td>${PAYOUT_LABELS[r.type] || r.type}</td>
+        <td style="color:var(--text-muted)">${escHtml(r.title)}</td>
+        <td><span class="badge badge-active" style="font-size:.7rem">OK</span></td>
+      </tr>
+    `).join('');
+    document.getElementById('csvPreviewCount').textContent =
+      `${_csvParsedRows.length} рядків · ${fmtMoney(_csvParsedRows.reduce((s,r)=>s+r.amount,0))}`;
+    preview?.classList.remove('hidden');
+    if (!errors.length) { msgEl.textContent = `✓ ${_csvParsedRows.length} рядків готові до імпорту.`; msgEl.className = 'form-msg success'; msgEl.classList.remove('hidden'); }
+  };
+  reader.readAsText(file, 'UTF-8');
+});
+
+document.getElementById('csvImportToBatchBtn')?.addEventListener('click', () => {
+  if (!_csvParsedRows.length) return;
+  _csvParsedRows.forEach(r => {
+    batchRows.push({ id: ++batchRowId, userId: r.userId, userName: `ID ${r.userId}`, type: r.type, amount: r.amount, title: r.title });
+  });
+  renderBatchTable();
+  finSwitchTab('batch');
+  showToast(`${_csvParsedRows.length} рядків додано до пакету`);
+  _csvParsedRows = [];
+  document.getElementById('csvPreviewWrap')?.classList.add('hidden');
+  document.getElementById('csvImportFile').value = '';
+});
+
 /* ══════════════════════════════════════════════
    AUDIT LOG
 ══════════════════════════════════════════════ */
+let auditAllRows = [];
+let auditOffset  = 0;
+const AUDIT_LIMIT = 50;
+
+const AUDIT_EVENT_LABELS = {
+  login: 'Вхід', logout: 'Вихід', register: 'Реєстрація',
+  payout_received: 'Виплата', admin_payout: 'Адмін: виплата',
+  admin_role_change: 'Зміна ролі', donation: 'Донат',
+  transfer_out: 'Переказ (вих.)', transfer_in: 'Переказ (вх.)',
+  withdrawal: 'Зняття', deposit: 'Депозит',
+};
+
+function auditApplyFilters(rows) {
+  const userId = (document.getElementById('auditUserIdFilter')?.value || '').trim();
+  const action = document.getElementById('auditActionFilter')?.value || '';
+  const from   = document.getElementById('auditDateFrom')?.value || '';
+  const to     = document.getElementById('auditDateTo')?.value || '';
+  if (userId) rows = rows.filter(l => String(l.user_id || '') === userId);
+  if (action) rows = rows.filter(l => (l.action || '') === action);
+  if (from)   rows = rows.filter(l => l.created_at && l.created_at >= from);
+  if (to)     rows = rows.filter(l => l.created_at && l.created_at.slice(0,10) <= to);
+  return rows;
+}
+
+function renderAuditPagination(total, offset, limit) {
+  const bar = document.getElementById('auditPagination');
+  if (!bar) return;
+  const pages = Math.ceil(total / limit);
+  const cur   = Math.floor(offset / limit);
+  if (pages <= 1) { bar.innerHTML = ''; return; }
+  let html = '';
+  for (let i = 0; i < pages; i++) {
+    html += `<button class="page-btn${i === cur ? ' active' : ''}" data-offset="${i * limit}">${i + 1}</button>`;
+  }
+  bar.innerHTML = html;
+  bar.querySelectorAll('.page-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      auditOffset = +btn.dataset.offset;
+      renderAuditTable();
+    });
+  });
+}
+
+function renderAuditTable() {
+  const filtered = auditApplyFilters(auditAllRows);
+  const page = filtered.slice(auditOffset, auditOffset + AUDIT_LIMIT);
+  renderAuditPagination(filtered.length, auditOffset, AUDIT_LIMIT);
+  document.getElementById('auditBody').innerHTML = page.length
+    ? page.map(l => `
+        <tr>
+          <td style="color:var(--text-muted);font-size:.8rem;white-space:nowrap">${fmt(l.created_at)}</td>
+          <td style="color:var(--text-muted);font-size:.82rem">${l.user_id || '—'}</td>
+          <td><span class="badge" style="background:rgba(255,255,255,.06);color:var(--text)">${AUDIT_EVENT_LABELS[l.action] || escHtml(l.action)}</span></td>
+          <td style="font-size:.82rem;color:var(--text-muted);max-width:350px;overflow:hidden;text-overflow:ellipsis">${escHtml(l.details || '—')}</td>
+        </tr>
+      `).join('')
+    : '<tr><td colspan="4" class="empty-state">Записів не знайдено.</td></tr>';
+}
+
 async function loadAuditLogs() {
+  document.getElementById('auditBody').innerHTML = '<tr><td colspan="4" class="empty-state">Завантаження…</td></tr>';
   try {
-    const res  = await api.listAuditLogs({ limit: 200 });
-    const logs = res.data || [];
-    const eventLabels = {
-      login: 'Вхід', logout: 'Вихід', register: 'Реєстрація',
-      payout_received: 'Виплата', admin_payout: 'Адмін: виплата',
-      admin_role_change: 'Зміна ролі', donation: 'Донат',
-      transfer_out: 'Переказ (вих.)', transfer_in: 'Переказ (вх.)',
-      withdrawal: 'Зняття', deposit: 'Депозит',
-    };
-    document.getElementById('auditBody').innerHTML = logs.map(l => `
-      <tr>
-        <td style="color:var(--text-muted);font-size:.8rem;white-space:nowrap">${fmt(l.created_at)}</td>
-        <td style="color:var(--text-muted);font-size:.82rem">${l.user_id || '—'}</td>
-        <td><span class="badge" style="background:rgba(255,255,255,.06);color:var(--text)">${eventLabels[l.action] || escHtml(l.action)}</span></td>
-        <td style="font-size:.82rem;color:var(--text-muted);max-width:350px;overflow:hidden;text-overflow:ellipsis">${escHtml(l.details || '—')}</td>
-      </tr>
-    `).join('');
+    const res = await api.listAuditLogs({ limit: 1000 });
+    auditAllRows = res.data || [];
+    auditOffset  = 0;
+    renderAuditTable();
   } catch (err) {
-    showToast('Помилка: ' + err.message, 'error');
+    document.getElementById('auditBody').innerHTML = `<tr><td colspan="4" class="empty-state" style="color:var(--red)">${escHtml(err.message)}</td></tr>`;
   }
 }
 
 document.getElementById('refreshAudit').addEventListener('click', loadAuditLogs);
+document.getElementById('applyAuditFilterBtn')?.addEventListener('click', () => { auditOffset = 0; renderAuditTable(); });
+document.getElementById('clearAuditFilterBtn')?.addEventListener('click', () => {
+  document.getElementById('auditUserIdFilter').value = '';
+  document.getElementById('auditActionFilter').value = '';
+  document.getElementById('auditDateFrom').value = '';
+  document.getElementById('auditDateTo').value = '';
+  auditOffset = 0;
+  renderAuditTable();
+});
+
+document.getElementById('exportAuditCsvBtn')?.addEventListener('click', () => {
+  const rows = auditApplyFilters(auditAllRows);
+  if (!rows.length) { showToast('Немає даних для експорту', 'error'); return; }
+  const header = 'Дата,User ID,Подія,Деталі\n';
+  const lines  = rows.map(l =>
+    `"${fmt(l.created_at)}","${l.user_id || ''}","${AUDIT_EVENT_LABELS[l.action] || l.action}","${(l.details || '').replace(/"/g, '""')}"`
+  ).join('\n');
+  downloadCsv(`audit_${new Date().toISOString().slice(0,10)}.csv`, header + lines);
+});
 
 /* ══════════════════════════════════════════════
    CARDS PAGE
 ══════════════════════════════════════════════ */
+let cardsSelectedIds = new Set();
+let _cardsCurrentPage = [];
+
 function cardStatusBadge(s) {
   if (s === 'active')  return badge('active', 'Активна');
   if (s === 'blocked') return badge('blocked', 'Заблокована');
@@ -3093,6 +3289,15 @@ function cardStatusBadge(s) {
 
 function cardTypeLbl(t) {
   return t === 'physical' ? 'Фізична' : 'Віртуальна';
+}
+
+function updateCardsBulkBar() {
+  const bar   = document.getElementById('cardsBulkBar');
+  const count = document.getElementById('cardsBulkCount');
+  if (!bar) return;
+  const n = cardsSelectedIds.size;
+  bar.classList.toggle('hidden', n === 0);
+  if (count) count.textContent = `${n} обрано`;
 }
 
 function renderCardsPagination(total, offset, limit) {
@@ -3137,22 +3342,25 @@ async function loadAdminCards(offset = 0) {
   params.limit  = CARDS_LIMIT;
   params.offset = offset;
 
-  if (offset === 0) loadCardsStats();
+  if (offset === 0) { cardsSelectedIds.clear(); updateCardsBulkBar(); loadCardsStats(); }
 
-  document.getElementById('cardsBody').innerHTML = '<tr><td colspan="10" class="empty-state">Завантаження…</td></tr>';
+  document.getElementById('cardsBody').innerHTML = '<tr><td colspan="11" class="empty-state">Завантаження…</td></tr>';
   try {
     const res = await api.listAdminCards(params);
     const data  = res.data || [];
     const total = res.total || 0;
+    _cardsCurrentPage = data;
 
     if (!data.length) {
-      document.getElementById('cardsBody').innerHTML = '<tr><td colspan="10" class="empty-state">Карток не знайдено.</td></tr>';
+      document.getElementById('cardsBody').innerHTML = '<tr><td colspan="11" class="empty-state">Карток не знайдено.</td></tr>';
       renderCardsPagination(0, 0, CARDS_LIMIT);
       return;
     }
 
-    document.getElementById('cardsBody').innerHTML = data.map(c => `
-      <tr>
+    document.getElementById('cardsBody').innerHTML = data.map(c => {
+      const chk = cardsSelectedIds.has(c.id) ? 'checked' : '';
+      return `<tr class="${cardsSelectedIds.has(c.id) ? 'bal-selected' : ''}">
+        <td><input type="checkbox" class="card-chk" data-id="${c.id}" data-status="${c.status}" ${chk} /></td>
         <td style="color:var(--text-muted);font-size:.78rem">${c.id}</td>
         <td><code style="font-size:.8rem">${escHtml(c.card_number_masked || '****')}</code></td>
         <td style="font-size:.82rem">${cardTypeLbl(c.card_type)}</td>
@@ -3176,12 +3384,24 @@ async function loadAdminCards(offset = 0) {
             ? `<button class="btn-secondary card-action-btn" data-id="${c.id}" data-action="close" style="font-size:.75rem;padding:4px 8px;color:var(--danger)">Закрити</button>`
             : ''}
         </td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
+
+    // bind checkboxes
+    document.getElementById('cardsBody').querySelectorAll('.card-chk').forEach(chk => {
+      chk.addEventListener('change', () => {
+        const id = chk.dataset.id;
+        chk.checked ? cardsSelectedIds.add(id) : cardsSelectedIds.delete(id);
+        chk.closest('tr').classList.toggle('bal-selected', chk.checked);
+        const allChk = document.getElementById('cardsSelectAllChk');
+        if (allChk) allChk.checked = _cardsCurrentPage.every(c => cardsSelectedIds.has(c.id));
+        updateCardsBulkBar();
+      });
+    });
 
     renderCardsPagination(total, offset, CARDS_LIMIT);
   } catch (err) {
-    document.getElementById('cardsBody').innerHTML = `<tr><td colspan="10" class="empty-state">${escHtml(err.message)}</td></tr>`;
+    document.getElementById('cardsBody').innerHTML = `<tr><td colspan="11" class="empty-state">${escHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -3192,6 +3412,52 @@ document.getElementById('clearCardFilterBtn')?.addEventListener('click', () => {
   document.getElementById('cardUserIdFilter').value = '';
   loadAdminCards(0);
 });
+
+// Select-all checkbox
+document.getElementById('cardsSelectAllChk')?.addEventListener('change', e => {
+  const checked = e.target.checked;
+  _cardsCurrentPage.forEach(c => {
+    checked ? cardsSelectedIds.add(c.id) : cardsSelectedIds.delete(c.id);
+  });
+  document.getElementById('cardsBody').querySelectorAll('.card-chk').forEach(chk => {
+    chk.checked = checked;
+    chk.closest('tr').classList.toggle('bal-selected', checked);
+  });
+  updateCardsBulkBar();
+});
+
+// Clear selection
+document.getElementById('cardsClearSelBtn')?.addEventListener('click', () => {
+  cardsSelectedIds.clear();
+  const allChk = document.getElementById('cardsSelectAllChk');
+  if (allChk) allChk.checked = false;
+  document.getElementById('cardsBody').querySelectorAll('.card-chk').forEach(chk => {
+    chk.checked = false;
+    chk.closest('tr').classList.remove('bal-selected');
+  });
+  updateCardsBulkBar();
+});
+
+async function runCardsBulkAction(action) {
+  const ids = [...cardsSelectedIds];
+  if (!ids.length) return;
+  const labels = { block: 'Заблокувати', unblock: 'Розблокувати' };
+  if (!confirm(`${labels[action]} ${ids.length} карток?`)) return;
+  let done = 0;
+  for (const id of ids) {
+    try {
+      if (action === 'block')   await api.blockAdminCard(id);
+      if (action === 'unblock') await api.unblockAdminCard(id);
+      done++;
+    } catch {}
+  }
+  showToast(`${labels[action]}: ${done}/${ids.length}`, done === ids.length ? 'success' : 'error');
+  cardsSelectedIds.clear();
+  loadAdminCards(cardsOffset);
+}
+
+document.getElementById('cardsBulkBlockBtn')?.addEventListener('click', () => runCardsBulkAction('block'));
+document.getElementById('cardsBulkUnblockBtn')?.addEventListener('click', () => runCardsBulkAction('unblock'));
 
 document.getElementById('cardsBody')?.addEventListener('click', async e => {
   const btn = e.target.closest('.card-action-btn');
